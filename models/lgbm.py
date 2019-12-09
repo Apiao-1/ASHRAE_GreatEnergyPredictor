@@ -99,8 +99,8 @@ LOCAL_TEST = False
 RECORD_LIMIT = 1000
 
 if __name__ == '__main__':
-    # path_data = "/kaggle/input/ashrae-energy-prediction/"
-    path_data = "../data/"
+    path_data = "/kaggle/input/ashrae-energy-prediction/"
+    # path_data = "../data/"
     path_train = path_data + "train.csv"
     path_test = path_data + "test.csv"
     path_building = path_data + "building_metadata.csv"
@@ -195,7 +195,6 @@ if __name__ == '__main__':
     cv_scores = {"site_id": [], "cv_score": []}
 
     for site_id in range(16):
-        print(cv, "fold CV for site_id:", site_id)
         kf = KFold(n_splits=cv, random_state=seed)
         models[site_id] = []
 
@@ -241,42 +240,40 @@ if __name__ == '__main__':
 
         print("\nSite Id:", site_id, ", CV RMSE:", np.sqrt(mean_squared_error(y_train_site, y_pred_train_site)), "\n")
 
-        pd.DataFrame.from_dict(cv_scores)
+    print(pd.DataFrame.from_dict(cv_scores))
 
-        del df_train, X_train_site, y_train_site, X_train, y_train, dtrain, X_valid, y_valid, dvalid, y_pred_train_site, y_pred_valid, rmse, score, cv_scores
-        gc.collect()
+    del df_train, X_train_site, y_train_site, X_train, y_train, dtrain, X_valid, y_valid, dvalid, y_pred_train_site, y_pred_valid, rmse, score, cv_scores
+    gc.collect()
 
-        # Scoring on test data
-        weather_test = create_lag_features(weather_test, 18)
+    # Scoring on test data
+    weather_test = create_lag_features(weather_test, 18)
 
-        df_test_sites = []
+    df_test_sites = []
 
-        for site_id in range(16):
-            print("Preparing test data for site_id", site_id)
+    for site_id in range(16):
+        X_test_site = df_test[df_test.site_id == site_id]
+        weather_test_site = weather_test[weather_test.site_id == site_id]
 
-            X_test_site = df_test[df_test.site_id == site_id]
-            weather_test_site = weather_test[weather_test.site_id == site_id]
+        X_test_site = X_test_site.merge(weather_test_site, on=["site_id", "timestamp"], how="left")
 
-            X_test_site = X_test_site.merge(weather_test_site, on=["site_id", "timestamp"], how="left")
+        row_ids_site = X_test_site.row_id
 
-            row_ids_site = X_test_site.row_id
+        X_test_site = X_test_site[all_features]
+        y_pred_test_site = np.zeros(X_test_site.shape[0])
 
-            X_test_site = X_test_site[all_features]
-            y_pred_test_site = np.zeros(X_test_site.shape[0])
-
-            print("Scoring for site_id", site_id)
-            for fold in range(cv):
-                model_lgb = models[site_id][fold]
-                y_pred_test_site += model_lgb.predict(X_test_site, num_iteration=model_lgb.best_iteration) / cv
-                gc.collect()
-
-            df_test_site = pd.DataFrame({"row_id": row_ids_site, "meter_reading": y_pred_test_site})
-            df_test_sites.append(df_test_site)
-
-            print("Scoring for site_id", site_id, "completed\n")
+        print("Scoring for site_id", site_id)
+        for fold in range(cv):
+            model_lgb = models[site_id][fold]
+            y_pred_test_site += model_lgb.predict(X_test_site, num_iteration=model_lgb.best_iteration) / cv
             gc.collect()
 
-        submit = pd.concat(df_test_sites)
-        submit.meter_reading = np.clip(np.expm1(submit.meter_reading), 0, a_max=None)
-        # submit.to_csv("submission_noleak.csv", index=False)
-        submit.to_csv("submission.csv", index=False)
+        df_test_site = pd.DataFrame({"row_id": row_ids_site, "meter_reading": y_pred_test_site})
+        df_test_sites.append(df_test_site)
+
+        print("Scoring for site_id", site_id, "completed\n")
+        gc.collect()
+
+    submit = pd.concat(df_test_sites)
+    submit.meter_reading = np.clip(np.expm1(submit.meter_reading), 0, a_max=None)
+    # submit.to_csv("submission_noleak.csv", index=False)
+    submit.to_csv("submission.csv", index=False)
