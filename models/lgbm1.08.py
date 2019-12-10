@@ -181,11 +181,6 @@ if __name__ == '__main__':
     del train_df
     gc.collect()
 
-    target = np.log1p(train_df["meter_reading"])
-    features = train_df.drop('meter_reading', axis=1)
-    del train_df
-    gc.collect()
-
     categorical_features = ["building_id", "site_id", "meter", "primary_use", "weekend"]
     params = {
         "objective": "regression",
