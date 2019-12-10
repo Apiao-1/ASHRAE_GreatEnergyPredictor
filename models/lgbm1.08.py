@@ -6,9 +6,10 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold
 import datetime
 import gc
+from sklearn.metrics import mean_squared_error
 
 
-# Original code from https://www.kaggle.com/aitude/ashrae-missing-weather-data-handling by @aitude
+# Original code # https://www.kaggle.com/purist1024/ashrae-simple-data-cleanup-lb-1-08-no-leaks
 
 def fill_weather_dataset(weather_df):
     # Find Missing Dates
@@ -79,8 +80,6 @@ def fill_weather_dataset(weather_df):
     return weather_df
 
 
-# Original code from https://www.kaggle.com/gemartin/load-data-reduce-memory-usage by @gemartin
-
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 from pandas.api.types import is_categorical_dtype
 
@@ -149,6 +148,7 @@ def features_engineering(df):
 
     return df
 
+
 if __name__ == '__main__':
     DATA_PATH = "../input/ashrae-energy-prediction/"
 
@@ -167,8 +167,9 @@ if __name__ == '__main__':
     building_df = reduce_mem_usage(building_df, use_float16=True)
     weather_df = reduce_mem_usage(weather_df, use_float16=True)
 
-    train_df = train_df.merge(building_df, left_on='building_id',right_on='building_id',how='left')
-    train_df = train_df.merge(weather_df,how='left',left_on=['site_id','timestamp'],right_on=['site_id','timestamp'])
+    train_df = train_df.merge(building_df, left_on='building_id', right_on='building_id', how='left')
+    train_df = train_df.merge(weather_df, how='left', left_on=['site_id', 'timestamp'],
+                              right_on=['site_id', 'timestamp'])
     del weather_df
     gc.collect()
 
@@ -198,6 +199,7 @@ if __name__ == '__main__':
 
     kf = KFold(n_splits=3)
     models = []
+    RMSEs = []
     for train_index, test_index in kf.split(features):
         train_features = features.loc[train_index]
         train_target = target.loc[train_index]
@@ -211,11 +213,18 @@ if __name__ == '__main__':
                              free_raw_data=False)
 
         model = lgb.train(params, train_set=d_training, num_boost_round=1000, valid_sets=[d_training, d_test],
-                          verbose_eval=25, early_stopping_rounds=50)
+                          verbose_eval=False, early_stopping_rounds=50)
         models.append(model)
+
+        y_pred = model.predict(d_test, num_iteration=model.best_iteration)
+        rmse = np.sqrt(mean_squared_error(test_target, y_pred))
+        print("single rmse:", rmse)
+        RMSEs.append(rmse)
+
         del train_features, train_target, test_features, test_target, d_training, d_test
         gc.collect()
 
+    print("3 floder mean RMSE：", np.mean(RMSEs))
     del features, target
     gc.collect()
 
