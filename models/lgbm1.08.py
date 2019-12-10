@@ -211,7 +211,7 @@ if __name__ == '__main__':
                           verbose_eval=False, early_stopping_rounds=50)
         models.append(model)
 
-        y_pred = model.predict(d_test, num_iteration=model.best_iteration)
+        y_pred = model.predict(test_features, num_iteration=model.best_iteration)
         rmse = np.sqrt(mean_squared_error(test_target, y_pred))
         print("single rmse:", rmse)
         RMSEs.append(rmse)
