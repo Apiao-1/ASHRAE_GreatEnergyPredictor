@@ -1,3 +1,5 @@
+# https://www.kaggle.com/ragnar123/another-1-08-lb-no-leak/
+
 # !pip install meteocalc
 import pandas as pd
 import numpy as np
@@ -192,13 +194,20 @@ def run_lgbm(train, cat_features, num_rounds=20000, folds=3):
         vl_x, vl_y = train[features].iloc[val_idx], train[target].iloc[val_idx]
         tr_data = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical)
         vl_data = lgb.Dataset(vl_x, label=vl_y, categorical_feature=categorical)
-        clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=25,
+        clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=False,
                         early_stopping_rounds=50)
         models.append(clf)
         oof[val_idx] = clf.predict(vl_x)
         gc.collect()
     score = np.sqrt(metrics.mean_squared_error(train[target], np.clip(oof, a_min=0, a_max=None)))
     print('Our oof cv is :', score)
+
+    # Important Features
+    for model in models:
+        plt.figure(figsize=(12, 6))
+        lgb.plot_importance(model, importance_type="gain")
+        plt.show()
+
     return models
 
 
