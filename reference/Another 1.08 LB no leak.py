@@ -84,33 +84,33 @@ def fill_weather_dataset(weather_df):
     weather_df = weather_df.reset_index()
     weather_df = weather_df.drop(['datetime', 'day', 'week', 'month'], axis=1)
 
-    def get_meteorological_features(data):
-        def calculate_rh(df):
-            df['relative_humidity'] = 100 * (
-                        np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
-                    (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
-
-        def calculate_fl(df):
-            flike_final = []
-            flike = []
-            # calculate Feels Like temperature
-            for i in range(len(df)):
-                at = df['air_temperature'][i]
-                rh = df['relative_humidity'][i]
-                ws = df['wind_speed'][i]
-                flike.append(feels_like(Temp(at, unit='C'), rh, ws))
-            for i in range(len(flike)):
-                flike_final.append(flike[i].f)
-            df['feels_like'] = flike_final
-            del flike_final, flike, at, rh, ws
-
-        calculate_rh(data)
-        calculate_fl(data)
-        return data
-
     weather_df = get_meteorological_features(weather_df)
 
     return weather_df
+
+def get_meteorological_features(data):
+    def calculate_rh(df):
+        df['relative_humidity'] = 100 * (
+                    np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
+                (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
+
+    def calculate_fl(df):
+        flike_final = []
+        flike = []
+        # calculate Feels Like temperature
+        for i in range(len(df)):
+            at = df['air_temperature'][i]
+            rh = df['relative_humidity'][i]
+            ws = df['wind_speed'][i]
+            flike.append(feels_like(Temp(at, unit='C'), rh, ws))
+        for i in range(len(flike)):
+            flike_final.append(flike[i].f)
+        df['feels_like'] = flike_final
+        del flike_final, flike, at, rh, ws
+
+    calculate_rh(data)
+    calculate_fl(data)
+    return data
 
 
 # Original code from https://www.kaggle.com/gemartin/load-data-reduce-memory-usage by @gemartin
