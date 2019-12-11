@@ -11,6 +11,7 @@ from meteocalc import feels_like, Temp
 from sklearn import metrics
 import gc
 import os
+
 for dirname, _, filenames in os.walk('/kaggle/input'):
     for filename in filenames:
         print(os.path.join(dirname, filename))
@@ -88,11 +89,12 @@ def fill_weather_dataset(weather_df):
 
     return weather_df
 
+
 def get_meteorological_features(data):
     def calculate_rh(df):
         df['relative_humidity'] = 100 * (
-                    np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
-                (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
+                np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
+            (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
 
     def calculate_fl(df):
         flike_final = []
@@ -160,42 +162,45 @@ def reduce_mem_usage(df, use_float16=False):
 
     return df
 
-def run_lgbm(train, cat_features, num_rounds = 20000, folds = 3):
-    kf = GroupKFold(n_splits = folds)
-    models = []
-#     param = {"objective": "regression",
-#              "boosting": "gbdt",
-#              "num_leaves": 1280,
-#              "learning_rate": 0.05,
-#              "feature_fraction": 0.85,
-#              "reg_lambda": 2,
-#              "metric": "rmse"
-#             }
 
-    param =  {'num_leaves': 500,
-             'objective': 'regression',
-             'learning_rate': 0.05,
-             'boosting': 'gbdt',
-             'subsample': 0.4,
-             'feature_fraction': 0.7,
-             'n_jobs': -1,
-             'seed': 50,
-             'metric': 'rmse'
-              }
+def run_lgbm(train, cat_features, num_rounds=20000, folds=3):
+    kf = GroupKFold(n_splits=folds)
+    models = []
+    #     param = {"objective": "regression",
+    #              "boosting": "gbdt",
+    #              "num_leaves": 1280,
+    #              "learning_rate": 0.05,
+    #              "feature_fraction": 0.85,
+    #              "reg_lambda": 2,
+    #              "metric": "rmse"
+    #             }
+
+    param = {
+        'num_leaves': 500,
+        'objective': 'regression',
+        'learning_rate': 0.05,
+        'boosting': 'gbdt',
+        'subsample': 0.4,
+        'feature_fraction': 0.7,
+        'n_jobs': -1,
+        'seed': 50,
+        'metric': 'rmse'
+    }
     oof = np.zeros(len(train))
-    for tr_idx, val_idx in tqdm(kf.split(train, groups = train['group']), total = folds):
+    for tr_idx, val_idx in tqdm(kf.split(train, groups=train['group']), total=folds):
         tr_x, tr_y = train[features].iloc[tr_idx], train[target].iloc[tr_idx]
         vl_x, vl_y = train[features].iloc[val_idx], train[target].iloc[val_idx]
-        tr_data = lgb.Dataset(tr_x, label = tr_y,  categorical_feature = categorical)
-        vl_data = lgb.Dataset(vl_x, label = vl_y,  categorical_feature = categorical)
-        clf = lgb.train(param, tr_data, num_rounds, valid_sets = [tr_data, vl_data], verbose_eval = 25,
-                        early_stopping_rounds = 50)
+        tr_data = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical)
+        vl_data = lgb.Dataset(vl_x, label=vl_y, categorical_feature=categorical)
+        clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=25,
+                        early_stopping_rounds=50)
         models.append(clf)
         oof[val_idx] = clf.predict(vl_x)
         gc.collect()
     score = np.sqrt(metrics.mean_squared_error(train[target], np.clip(oof, a_min=0, a_max=None)))
     print('Our oof cv is :', score)
     return models
+
 
 def features_engineering(df):
     # Sort by timestamp
@@ -231,22 +236,24 @@ def features_engineering(df):
 
     return df
 
-def predictions(models, iterations = 50):
+
+def predictions(models, iterations=50):
     # split test data into batches
     set_size = len(test_df)
     batch_size = set_size // iterations
     meter_reading = []
     for i in tqdm(range(iterations)):
-        pos = i*batch_size
-        fold_preds = [np.expm1(model.predict(test_df[features].iloc[pos : pos+batch_size])) for model in models]
+        pos = i * batch_size
+        fold_preds = [np.expm1(model.predict(test_df[features].iloc[pos: pos + batch_size])) for model in models]
         meter_reading.extend(np.mean(fold_preds, axis=0))
 
     print(len(meter_reading))
     assert len(meter_reading) == set_size
     submission = pd.read_csv('/kaggle/input/ashrae-energy-prediction/sample_submission.csv')
-    submission['meter_reading'] = np.clip(meter_reading, a_min=0, a_max=None) # clip min at zero
+    submission['meter_reading'] = np.clip(meter_reading, a_min=0, a_max=None)  # clip min at zero
     submission.to_csv('fe2_lgbm.csv', index=False)
     print('We are done!')
+
 
 if __name__ == '__main__':
     train_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/train.csv')
