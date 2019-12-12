@@ -166,7 +166,7 @@ def features_engineering(df):
 def BayesianSearch(clf, params):
     """贝叶斯优化器"""
     # 迭代次数
-    num_iter = 25
+    num_iter = 40
     init_points = 5
     # 创建一个贝叶斯优化对象，输入为自定义的模型评估函数与超参数的范围
     bayes = BayesianOptimization(clf, params)
@@ -179,35 +179,43 @@ def BayesianSearch(clf, params):
     return params
 
 
-def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, max_depth, bagging_fraction, lambda_l1,
+def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leaves, bagging_fraction, lambda_l1,
                  lambda_l2, bagging_freq):
     """自定义的模型评估函数"""
 
     # 模型固定的超参数
     param = {
-        # 'n_estimators': 500,
-        'learning_rate': 0.1,
-
+        # # 'n_estimators': 500,
+        # 'learning_rate': 0.1,
+        #
         # 'num_leaves': 32,  # Original 50
-        'max_depth': 5,
+        # # 'max_depth': 5,
+        #
+        # 'min_data_in_leaf': 49,  # min_child_samples
+        # # 'max_bin': 58,
+        # 'min_child_weight': 19,
+        #
+        # "feature_fraction": 0.56,  # 0.9 colsample_bytree
+        # "bagging_freq": 9,
+        # "bagging_fraction": 0.9,  # 'subsample'
+        # "bagging_seed": 2019,
+        #
+        # # 'min_split_gain': 0.0,
+        # "lambda_l1": 0.21,
+        # "lambda_l2": 0.65,
+        #
+        # "boosting": "gbdt",
+        # "objective": "regression",
+        # "metric": "rmse",
+        # "verbosity": -1,
 
-        'min_data_in_leaf': 49,  # min_child_samples
-        # 'max_bin': 58,
-        'min_child_weight': 19,
-
-        "feature_fraction": 0.56,  # 0.9 colsample_bytree
-        "bagging_freq": 9,
-        "bagging_fraction": 0.9,  # 'subsample'
-        "bagging_seed": 2019,
-
-        # 'min_split_gain': 0.0,
-        "lambda_l1": 0.21,
-        "lambda_l2": 0.65,
-
-        "boosting": "gbdt",
         "objective": "regression",
+        "boosting": "gbdt",
+        "num_leaves": 1280,
+        "learning_rate": 0.05,
+        "feature_fraction": 0.85,
+        "reg_lambda": 2,
         "metric": "rmse",
-        "verbosity": -1,
         "seed": 2019,
     }
     global flag
@@ -218,9 +226,10 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, max_depth
     # 贝叶斯优化器生成的超参数
     param['min_child_weight'] = int(min_child_weight)
     param['feature_fraction'] = float(feature_fraction)
-    param['max_depth'] = int(max_depth)
-    param['bagging_fraction'] = float(bagging_fraction)
-    param['bagging_freq'] = int(bagging_freq)
+    # param['max_depth'] = int(max_depth)
+    param['num_leaves'] = int(num_leaves)
+    # param['bagging_fraction'] = float(bagging_fraction)
+    # param['bagging_freq'] = int(bagging_freq)
     param['lambda_l2'] = float(lambda_l2)
     param['lambda_l1'] = float(lambda_l1)
     param['min_data_in_leaf'] = int(min_data_in_leaf)
@@ -318,8 +327,9 @@ if __name__ == '__main__':
     # 调参范围
     adj_params = {
         'min_child_weight': (3, 50),
-        'feature_fraction': (0.4, 1),
-        'max_depth': (4, 15),
+        'feature_fraction': (0.5, 1),
+        # 'max_depth': (4, 15),
+        'num_leaves':(1,1300),
         'bagging_fraction': (0.5, 1),
         'bagging_freq': (1, 10),
         'lambda_l2': (0.1, 1),
