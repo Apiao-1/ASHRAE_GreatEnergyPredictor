@@ -1,10 +1,35 @@
 # coding: utf-8
 
 import sys
-sys.path.append('/home/aistudio/external-libraries')
+
+# sys.path.append('/home/aistudio/external-libraries')
+# sys.path.append('/cos_person/notebook/100009019970/external-libraries')
+import os
+
+# os.system('pip install lightgbm --user')
+# os.system('pip install meteocalc --user')
+# os.system('pip install seaborn --user')
+
+os.system('pip install lightgbm')
+os.system('pip install meteocalc')
+os.system('pip install seaborn')
+os.system('mkdir results')
+
+# 查看内存和cpu
+os.system('free -g')
+os.system('cat /proc/cpuinfo| grep "processor"| wc -l')
+
+class Unbuffered(object):
+    def __init__(self, stream):
+        self.stream = stream
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+sys.stdout = Unbuffered(sys.stdout)
 
 import gc
-import os
 
 import lightgbm as lgb
 import numpy as np
@@ -67,7 +92,7 @@ def reduce_mem_usage(df, use_float16=False, verbose=False):
     """
 
     start_mem = df.memory_usage().sum() / 1024 ** 2
-    if verbose: logging.info("Memory usage of dataframe is {:.2f} MB".format(start_mem))
+    if verbose: print("Memory usage of dataframe is {:.2f} MB".format(start_mem))
 
     for col in df.columns:
         if is_datetime(df[col]) or is_categorical_dtype(df[col]):
@@ -97,8 +122,8 @@ def reduce_mem_usage(df, use_float16=False, verbose=False):
             df[col] = df[col].astype("category")
 
     end_mem = df.memory_usage().sum() / 1024 ** 2
-    if verbose: logging.info("Memory usage after optimization is: {:.2f} MB".format(end_mem))
-    if verbose: logging.info("Decreased by {:.1f}%".format(100 * (start_mem - end_mem) / start_mem))
+    if verbose: print("Memory usage after optimization is: {:.2f} MB".format(end_mem))
+    if verbose: print("Decreased by {:.1f}%".format(100 * (start_mem - end_mem) / start_mem))
 
     return df
 
@@ -259,6 +284,8 @@ def create_train(meter=0):
     bad_rows = pd.read_csv(DATA_PATH + "rows_to_drop.csv")
     train = train.drop(bad_rows.loc[:, '0']).reset_index(drop=True)
     train = reduce_mem_usage(train, use_float16=True)
+    del bad_rows
+    gc.collect()
 
     train = train.loc[train['meter'] == meter].reset_index(drop=True)
 
@@ -272,8 +299,8 @@ def create_train(meter=0):
     train['meter_reading'] = np.log1p(train["meter_reading"])
 
     train = train.drop(["timestamp"], axis=1)
-    logging.info(train.shape)
-    logging.info(train.head())
+    print(train.shape)
+    print(train.head())
     return train
 
 
@@ -291,26 +318,32 @@ def create_test(meter=0):
 
     return test
 
-import logging
-from logging.handlers import TimedRotatingFileHandler
-import re
-def init_log():
-    logging.getLogger('bloomfilter').setLevel('WARN')
-    log_file_handler = TimedRotatingFileHandler(filename="bloomfilter.log", when="D", interval=1, backupCount=7)
-    log_file_handler.suffix = "%Y-%m-%d"
-    log_file_handler.extMatch = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-    log_fmt = '%(asctime)s - %(name)s - %(levelname)s- %(filename)s:%(lineno)s - %(threadName)s - %(message)s'
-    formatter = logging.Formatter(log_fmt)
-    log_file_handler.setFormatter(formatter)
-    logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger().addHandler(log_file_handler)
+
+# import logging
+# from logging.handlers import TimedRotatingFileHandler
+# import re
+#
+#
+# def init_log():
+#     logging.getLogger('bloomfilter').setLevel('WARN')
+#     log_file_handler = TimedRotatingFileHandler(filename="bloomfilter.log", when="D", interval=1, backupCount=7)
+#     log_file_handler.suffix = "%Y-%m-%d"
+#     log_file_handler.extMatch = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#     log_fmt = '%(asctime)s - %(name)s - %(levelname)s- %(filename)s:%(lineno)s - %(threadName)s - %(message)s'
+#     formatter = logging.Formatter(log_fmt)
+#     log_file_handler.setFormatter(formatter)
+#     logging.getLogger().setLevel(logging.INFO)
+#     logging.getLogger().addHandler(log_file_handler)
+#     print("---------log inited----------")
 
 
 if __name__ == '__main__':
-    init_log()
+    # init_log()
+    start = datetime.now()
+    print("start at:", start.strftime('%Y-%m-%d %H:%M:%S'))
 
-    DATA_PATH = "/home/aistudio/data/data17604/"
-    # DATA_PATH = "../data/"
+    # DATA_PATH = "/home/aistudio/data/data17604/"
+    DATA_PATH = "/cos_person/notebook/100009019970/data/"
 
     for m in range(4):
         params = {}
@@ -336,30 +369,27 @@ if __name__ == '__main__':
             'seed': 4534,
             "verbosity": -1,
         })
-        logging.info(params)
+        print(params)
 
         train = create_train(meter=m)
-        test = create_test(meter=m)
 
         oof_train = np.zeros((train.shape[0]))
 
         models = []
+        y_true = train['meter_reading']
+        group = train['group']
+        train.drop(['meter', 'meter_reading', 'group', "month"], axis=1, inplace=True)
+
         kf = GroupKFold(n_splits=3)
-        for fold, (train_idx, valid_idx) in enumerate(kf.split(train, groups=train['group'])):
-            d_train = lgb.Dataset(
-                train.iloc[train_idx].drop(columns=['meter', 'meter_reading', 'group', "month"]),
-                label=train['meter_reading'].iloc[train_idx],
-                categorical_feature=None)
+        for fold, (train_idx, valid_idx) in enumerate(kf.split(train, groups=group)):
+            # print("len(train_idx) at fold %d: %d" % (fold, len(train_idx)))
+            # print("len(valid_idx) at fold %d: %d" % (fold, len(valid_idx)))
 
-            d_valid = lgb.Dataset(
-                train.iloc[valid_idx].drop(columns=['meter', 'meter_reading', 'group', "month"]),
-                label=train['meter_reading'].iloc[valid_idx],
-                categorical_feature=None)
-
+            d_train = lgb.Dataset(train.iloc[train_idx], label=y_true.iloc[train_idx], categorical_feature=None)
+            d_valid = lgb.Dataset(train.iloc[valid_idx], label=y_true.iloc[valid_idx], categorical_feature=None)
             watchlist = [d_train, d_valid]
 
-            categorical_feats = [train.drop(columns=['meter', 'meter_reading', 'group', "month"]).columns.get_loc(c) for
-                                 c
+            categorical_feats = [train.columns.get_loc(c) for c
                                  in ['building_id', 'site_id', 'primary_use', 'day_of_week', 'is_holiday']]
 
             mdl = lgb.train(
@@ -368,17 +398,16 @@ if __name__ == '__main__':
                 categorical_feature=categorical_feats,
                 valid_sets=watchlist,
                 verbose_eval=False,
-                num_boost_round=1000000,
+                num_boost_round=100000,
                 early_stopping_rounds=50,
             )
 
             # predict on out-of-fold samples...
-            y_valid_pred = mdl.predict(train.iloc[valid_idx].drop(columns=['meter', 'meter_reading', 'group', "month"]),
-                                       num_iteration=mdl.best_iteration)
+            y_valid_pred = mdl.predict(train.iloc[valid_idx], num_iteration=mdl.best_iteration)
             oof_train[valid_idx] += y_valid_pred
 
-            score = np.sqrt(mean_squared_error(train['meter_reading'].iloc[valid_idx], y_valid_pred))
-            logging.info('Fold: %s \t Validation: %s' % (fold, score))
+            score = np.sqrt(mean_squared_error(y_true.iloc[valid_idx], y_valid_pred))
+            print('Fold: %s \t Validation: %s' % (fold, score))
 
             models.append(mdl)
 
@@ -386,15 +415,16 @@ if __name__ == '__main__':
             gc.collect()
 
         validation = pd.DataFrame({
-            'meter_reading': train['meter_reading'],
+            'meter_reading': y_true,
             "meter_reading_oof": oof_train
         })
 
-        save_file = "../results/validation_model=%s_meter=%s.csv" % ("lightgbm", m)
+        save_file = "results/validation_model=%s_meter=%s.csv" % ("lightgbm", m)
         validation.to_csv(save_file, index=False)
+        print("write file finished, location: results/validation_model=%s_meter=%s.csv" % ("lightgbm", m))
 
-        score = np.sqrt(mean_squared_error(train['meter_reading'], oof_train))
-        logging.info('Validation: %s' % (score))
+        score = np.sqrt(mean_squared_error(y_true, oof_train))
+        print('total Validation: %s' % (score))
 
         del oof_train
         gc.collect()
@@ -420,18 +450,20 @@ if __name__ == '__main__':
                 "meter_reading": np.clip(meter_reading, a_min=0, a_max=None)
             })
 
-            save_file = "../results/submission_model=%s_meter=%s.csv" % ("lightgbm", m)
+            save_file = "results/submission_model=%s_meter=%s.csv" % ("lightgbm", m)
 
             submission.to_csv(save_file, index=False)
 
 
+        test = create_test(meter=m)
+
         predictions(meter=m, test=test, models=models)
 
     prediction_files = [
-        ('../results/validation_model=lightgbm_meter=0.csv'),
-        ('../results/validation_model=lightgbm_meter=1.csv'),
-        ('../results/validation_model=lightgbm_meter=2.csv'),
-        ('../results/validation_model=lightgbm_meter=3.csv'),
+        ('results/validation_model=lightgbm_meter=0.csv'),
+        ('results/validation_model=lightgbm_meter=1.csv'),
+        ('results/validation_model=lightgbm_meter=2.csv'),
+        ('results/validation_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -439,9 +471,9 @@ if __name__ == '__main__':
     for file in prediction_files:
         predictions = predictions.append(pd.read_csv(file))
 
-    logging.info(np.sqrt(mean_squared_error(predictions['meter_reading'], predictions['meter_reading_oof'])))
+    print(np.sqrt(mean_squared_error(predictions['meter_reading'], predictions['meter_reading_oof'])))
 
-    save_file = "../results/validation.csv"
+    save_file = "results/validation.csv"
     predictions.to_csv(save_file, index=False)
 
     plt.figure()
@@ -449,10 +481,10 @@ if __name__ == '__main__':
     sns.distplot(predictions['meter_reading_oof'])
 
     prediction_files = [
-        ('../results/submission_model=lightgbm_meter=0.csv'),
-        ('../results/submission_model=lightgbm_meter=1.csv'),
-        ('../results/submission_model=lightgbm_meter=2.csv'),
-        ('../results/submission_model=lightgbm_meter=3.csv'),
+        ('results/submission_model=lightgbm_meter=0.csv'),
+        ('results/submission_model=lightgbm_meter=1.csv'),
+        ('results/submission_model=lightgbm_meter=2.csv'),
+        ('results/submission_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -462,7 +494,9 @@ if __name__ == '__main__':
 
     predictions = predictions.sort_values(by=['row_id'])
 
-    save_file = '../results/submission.csv'
+    save_file = 'results/submission.csv'
     predictions.to_csv(save_file, index=False)
 
-    logging.info(predictions.head())
+    print(predictions.head())
+    end = datetime.now()
+    print("end at:", end.strftime('%Y-%m-%d %H:%M:%S'))
