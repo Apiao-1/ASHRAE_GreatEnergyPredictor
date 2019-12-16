@@ -13,20 +13,25 @@ import os
 os.system('pip install lightgbm')
 os.system('pip install meteocalc')
 os.system('pip install seaborn')
-os.system('mkdir results')
+os.system('pip install category_encoders')
 
 # 查看内存和cpu
 os.system('free -g')
 os.system('cat /proc/cpuinfo| grep "processor"| wc -l')
 
+
 class Unbuffered(object):
     def __init__(self, stream):
         self.stream = stream
+
     def write(self, data):
         self.stream.write(data)
         self.stream.flush()
+
     def __getattr__(self, attr):
         return getattr(self.stream, attr)
+
+
 sys.stdout = Unbuffered(sys.stdout)
 
 import gc
@@ -34,20 +39,15 @@ import gc
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-
 import datetime
 from meteocalc import feels_like, Temp
-
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import GroupKFold
-
+from sklearn.model_selection import GroupKFold, KFold
 from sklearn.preprocessing import LabelEncoder
-
 import seaborn as sns
 from matplotlib import pyplot as plt
-
 from datetime import datetime, date, timedelta
-
+import category_encoders as ce
 from collections import defaultdict
 from collections import Counter
 import warnings
@@ -276,6 +276,7 @@ def data(df):
     df['group'].replace((5, 6, 7, 8), 2, inplace=True)
     df['group'].replace((9, 10, 11, 12), 3, inplace=True)
 
+    # df = df.drop(["sea_level_pressure",  "wind_direction", "wind_speed"], axis=1)
     return df
 
 
@@ -319,23 +320,6 @@ def create_test(meter=0):
     return test
 
 
-# import logging
-# from logging.handlers import TimedRotatingFileHandler
-# import re
-#
-#
-# def init_log():
-#     logging.getLogger('bloomfilter').setLevel('WARN')
-#     log_file_handler = TimedRotatingFileHandler(filename="bloomfilter.log", when="D", interval=1, backupCount=7)
-#     log_file_handler.suffix = "%Y-%m-%d"
-#     log_file_handler.extMatch = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-#     log_fmt = '%(asctime)s - %(name)s - %(levelname)s- %(filename)s:%(lineno)s - %(threadName)s - %(message)s'
-#     formatter = logging.Formatter(log_fmt)
-#     log_file_handler.setFormatter(formatter)
-#     logging.getLogger().setLevel(logging.INFO)
-#     logging.getLogger().addHandler(log_file_handler)
-#     print("---------log inited----------")
-
 
 if __name__ == '__main__':
     # init_log()
@@ -344,6 +328,10 @@ if __name__ == '__main__':
 
     # DATA_PATH = "/home/aistudio/data/data17604/"
     DATA_PATH = "/cos_person/notebook/100009019970/data/"
+    RESULT_PATH = "/cos_person/notebook/100009019970/results/"
+
+    # DATA_PATH = "/cos_person/notebook/100009019970/data1/"
+    # RESULT_PATH = "/cos_person/notebook/100009019970/results1/"
 
     for m in range(4):
         params = {}
@@ -372,6 +360,10 @@ if __name__ == '__main__':
         print(params)
 
         train = create_train(meter=m)
+        # target_encoder = ce.TargetEncoder(cols=["building_id"]).fit(train, train['meter_reading'])
+        # train = target_encoder.transform(train)
+        # print(train.shape)
+        # print(train.head())
 
         oof_train = np.zeros((train.shape[0]))
 
@@ -419,9 +411,9 @@ if __name__ == '__main__':
             "meter_reading_oof": oof_train
         })
 
-        save_file = "results/validation_model=%s_meter=%s.csv" % ("lightgbm", m)
+        save_file = RESULT_PATH + "validation_model=%s_meter=%s.csv" % ("lightgbm", m)
         validation.to_csv(save_file, index=False)
-        print("write file finished, location: results/validation_model=%s_meter=%s.csv" % ("lightgbm", m))
+        print("write file finished, location: validation_model=%s_meter=%s.csv" % ("lightgbm", m))
 
         score = np.sqrt(mean_squared_error(y_true, oof_train))
         print('total Validation: %s' % (score))
@@ -450,20 +442,21 @@ if __name__ == '__main__':
                 "meter_reading": np.clip(meter_reading, a_min=0, a_max=None)
             })
 
-            save_file = "results/submission_model=%s_meter=%s.csv" % ("lightgbm", m)
+            save_file = RESULT_PATH + "submission_model=%s_meter=%s.csv" % ("lightgbm", m)
 
             submission.to_csv(save_file, index=False)
 
 
         test = create_test(meter=m)
+        # test = target_encoder.transform(test)
 
         predictions(meter=m, test=test, models=models)
 
     prediction_files = [
-        ('results/validation_model=lightgbm_meter=0.csv'),
-        ('results/validation_model=lightgbm_meter=1.csv'),
-        ('results/validation_model=lightgbm_meter=2.csv'),
-        ('results/validation_model=lightgbm_meter=3.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=0.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=1.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=2.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -473,7 +466,7 @@ if __name__ == '__main__':
 
     print(np.sqrt(mean_squared_error(predictions['meter_reading'], predictions['meter_reading_oof'])))
 
-    save_file = "results/validation.csv"
+    save_file = RESULT_PATH + "validation.csv"
     predictions.to_csv(save_file, index=False)
 
     plt.figure()
@@ -481,10 +474,10 @@ if __name__ == '__main__':
     sns.distplot(predictions['meter_reading_oof'])
 
     prediction_files = [
-        ('results/submission_model=lightgbm_meter=0.csv'),
-        ('results/submission_model=lightgbm_meter=1.csv'),
-        ('results/submission_model=lightgbm_meter=2.csv'),
-        ('results/submission_model=lightgbm_meter=3.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=0.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=1.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=2.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -494,7 +487,7 @@ if __name__ == '__main__':
 
     predictions = predictions.sort_values(by=['row_id'])
 
-    save_file = 'results/submission.csv'
+    save_file = RESULT_PATH + 'submission.csv'
     predictions.to_csv(save_file, index=False)
 
     print(predictions.head())

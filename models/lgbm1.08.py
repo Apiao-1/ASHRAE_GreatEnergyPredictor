@@ -6,12 +6,52 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold
 import datetime
 import gc
+import warnings
 from sklearn.metrics import mean_squared_error
+import os
 
+
+warnings.filterwarnings('ignore')
+pd.set_option('expand_frame_repr', False)
+pd.set_option('display.max_rows', 50)
+pd.set_option('display.max_columns', 200)
 
 # Original code # https://www.kaggle.com/purist1024/ashrae-simple-data-cleanup-lb-1-08-no-leaks
 
+# def create_lag_features(df, window):
+#     """
+#     Creating lag-based features looking back in time.
+#     """
+#
+#     feature_cols = ["cloud_coverage"]
+#     # feature_cols = ["air_temperature", "cloud_coverage", "dew_temperature", "precip_depth_1_hr"]
+#     df_site = df.groupby("site_id")
+#
+#     df_rolled = df_site[feature_cols].rolling(window=window, min_periods=0)
+#
+#     df_mean = df_rolled.mean().reset_index().astype(np.float16)
+#     df_median = df_rolled.median().reset_index().astype(np.float16)
+#     df_min = df_rolled.min().reset_index().astype(np.float16)
+#     df_max = df_rolled.max().reset_index().astype(np.float16)
+#     # df_std = df_rolled.std().reset_index().astype(np.float16)
+#     # df_skew = df_rolled.skew().reset_index().astype(np.float16)
+#
+#     for feature in feature_cols:
+#         df[f"{feature}_mean_lag{window}"] = df_mean[feature]
+#         df[f"{feature}_median_lag{window}"] = df_median[feature]
+#         df[f"{feature}_min_lag{window}"] = df_min[feature]
+#         df[f"{feature}_max_lag{window}"] = df_max[feature]
+#         # df[f"{feature}_std_lag{window}"] = df_std[feature]
+#         # df[f"{feature}_skew_lag{window}"] = df_skew[feature]
+#
+#     # df.drop(["air_temperature", "cloud_coverage", "dew_temperature", "precip_depth_1_hr"], axis=1,inplace=True)
+#
+#     return df
+
 def fill_weather_dataset(weather_df):
+    # 插值
+    # weather_df = weather_df.groupby("site_id").apply(lambda group: group.interpolate(limit_direction="both"))
+
     # Find Missing Dates
     time_format = "%Y-%m-%d %H:%M:%S"
     start_date = datetime.datetime.strptime(weather_df['timestamp'].min(), time_format)
@@ -28,7 +68,7 @@ def fill_weather_dataset(weather_df):
 
         weather_df = weather_df.reset_index(drop=True)
 
-        # Add new Features
+    # Add new Features
     weather_df["datetime"] = pd.to_datetime(weather_df["timestamp"])
     weather_df["day"] = weather_df["datetime"].dt.day
     weather_df["week"] = weather_df["datetime"].dt.week
@@ -36,6 +76,8 @@ def fill_weather_dataset(weather_df):
 
     # Reset Index for Fast Update
     weather_df = weather_df.set_index(['site_id', 'day', 'month'])
+
+    weather_df['humidity'] = relative_humidity(weather_df.air_temperature, weather_df.dew_temperature).astype(np.float16)
 
     air_temperature_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['air_temperature'].mean(),
                                           columns=["air_temperature"])
@@ -53,37 +95,65 @@ def fill_weather_dataset(weather_df):
     weather_df.update(due_temperature_filler, overwrite=False)
 
     # Step 1
-    sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
-    # Step 2
-    sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
-
-    weather_df.update(sea_level_filler, overwrite=False)
-
-    wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
-                                         columns=['wind_direction'])
-    weather_df.update(wind_direction_filler, overwrite=False)
-
-    wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
-                                     columns=['wind_speed'])
-    weather_df.update(wind_speed_filler, overwrite=False)
-
-    # Step 1
     precip_depth_filler = weather_df.groupby(['site_id', 'day', 'month'])['precip_depth_1_hr'].mean()
     # Step 2
     precip_depth_filler = pd.DataFrame(precip_depth_filler.fillna(method='ffill'), columns=['precip_depth_1_hr'])
 
     weather_df.update(precip_depth_filler, overwrite=False)
 
+    # # Step 1
+    # sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
+    # # Step 2
+    # sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
+    #
+    # weather_df.update(sea_level_filler, overwrite=False)
+    #
+    # wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
+    #                                      columns=['wind_direction'])
+    # weather_df.update(wind_direction_filler, overwrite=False)
+    #
+    # wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
+    #                                  columns=['wind_speed'])
+    # weather_df.update(wind_speed_filler, overwrite=False)
+
     weather_df = weather_df.reset_index()
     weather_df = weather_df.drop(['datetime', 'day', 'week', 'month'], axis=1)
 
+    # weather_df = get_meteorological_features(weather_df)
+
+    # weather_df = create_lag_features(weather_df, 18)
+
+
     return weather_df
 
+# !pip install meteocalc
+# from meteocalc import feels_like, Temp
+# def get_meteorological_features(data):
+#     def calculate_rh(df):
+#         df['relative_humidity'] = 100 * (
+#                 np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
+#             (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
+#
+#     def calculate_fl(df):
+#         flike_final = []
+#         flike = []
+#         # calculate Feels Like temperature
+#         for i in range(len(df)):
+#             at = df['air_temperature'][i]
+#             rh = df['relative_humidity'][i]
+#             ws = df['wind_speed'][i]
+#             flike.append(feels_like(Temp(at, unit='C'), rh, ws))
+#         for i in range(len(flike)):
+#             flike_final.append(flike[i].f)
+#         df['feels_like'] = flike_final
+#         del flike_final, flike, at, rh, ws
+#
+#     calculate_rh(data)
+#     calculate_fl(data)
+#     return data
 
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 from pandas.api.types import is_categorical_dtype
-
-
 def reduce_mem_usage(df, use_float16=False):
     """
     Iterate through all the columns of a dataframe and modify the data type to reduce memory usage.
@@ -135,7 +205,22 @@ def features_engineering(df):
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%Y-%m-%d %H:%M:%S")
     df["hour"] = df["timestamp"].dt.hour
     df["weekend"] = df["timestamp"].dt.weekday
+    # holidays = ["2016-01-01", "2016-01-18", "2016-02-15", "2016-05-30", "2016-07-04",
+    #             "2016-09-05", "2016-10-10", "2016-11-11", "2016-11-24", "2016-12-26",
+    #             "2017-01-02", "2017-01-16", "2017-02-20", "2017-05-29", "2017-07-04",
+    #             "2017-09-04", "2017-10-09", "2017-11-10", "2017-11-23", "2017-12-25",
+    #             "2018-01-01", "2018-01-15", "2018-02-19", "2018-05-28", "2018-07-04",
+    #             "2018-09-03", "2018-10-08", "2018-11-12", "2018-11-22", "2018-12-25",
+    #             "2019-01-01"]
+    # df['group'] = df['timestamp'].dt.month
+    # df['group'].replace((1, 2, 3, 4), 1, inplace=True)
+    # df['group'].replace((5, 6, 7, 8), 2, inplace=True)
+    # df['group'].replace((9, 10, 11, 12), 3, inplace=True)
+    # df["is_holiday"] = (df.timestamp.isin(holidays)).astype(int)
+    # df["is_weekend"] = df["weekend"].apply(lambda x: x // 5).astype(int)
+
     df['square_feet'] = np.log1p(df['square_feet'])
+
 
     # Remove Unused Columns
     drop = ["timestamp", "sea_level_pressure", "wind_direction", "wind_speed", "year_built", "floor_count"]
@@ -148,9 +233,16 @@ def features_engineering(df):
 
     return df
 
+def relative_humidity(Tc,Tdc):
+    E = 6.11*10.0**(7.5*Tdc/(237.7+Tdc))
+    Es = 6.11*10.0**(7.5*Tc/(237.7+Tc))
+    RH = (E/Es)*100
+    return RH
+
 
 if __name__ == '__main__':
-    DATA_PATH = "../input/ashrae-energy-prediction/"
+    # DATA_PATH = "../input/ashrae-energy-prediction/"
+    DATA_PATH = "../data/"
 
     train_df = pd.read_csv(DATA_PATH + 'train.csv')
 
@@ -174,7 +266,17 @@ if __name__ == '__main__':
     gc.collect()
 
     train_df = features_engineering(train_df)
+    # df_building_meter = train_df.groupby(["building_id", "meter"]).agg(
+    #     mean_building_meter=("meter_reading", "mean"),
+    #     median_building_meter=("meter_reading", "median")).reset_index()
+    # df_building_meter_hour = train_df.groupby(["building_id", "meter", "hour"]).agg(
+    #     mean_building_meter=("meter_reading", "mean"),
+    #     median_building_meter=("meter_reading", "median")).reset_index()
+    # train_df = train_df.merge(df_building_meter, on=["building_id", "meter"])
+    # train_df = train_df.merge(df_building_meter_hour, on=["building_id", "meter", "hour"])
+
     print(train_df.head(10))
+    print(train_df.shape)
 
     target = np.log1p(train_df["meter_reading"])
     features = train_df.drop('meter_reading', axis=1)
@@ -182,41 +284,48 @@ if __name__ == '__main__':
     gc.collect()
 
     categorical_features = ["building_id", "site_id", "meter", "primary_use", "weekend"]
+    # categorical_features = ["building_id", "site_id", "meter", "primary_use", "weekend","group","is_holiday", "is_weekend"]
+    # params = {
+    #     "objective": "regression",
+    #     "boosting": "gbdt",
+    #     "num_leaves": 1280,
+    #     "learning_rate": 0.05,
+    #     "feature_fraction": 0.85,
+    #     "reg_lambda": 2,
+    #     "metric": "rmse",
+    # }
     params = {
-        "objective": "regression",
-        "boosting": "gbdt",
-        "num_leaves": 1280,
-        "learning_rate": 0.05,
-        "feature_fraction": 0.85,
-        "reg_lambda": 2,
-        "metric": "rmse",
+        'num_leaves': 800,
+        'objective': 'regression',
+        'learning_rate': 0.05,
+        'boosting': 'gbdt',
+        'subsample': 0.4,
+        'feature_fraction': 0.7,
+        'n_jobs': -1,
+        'seed': 50,
+        'metric': 'rmse'
     }
 
     kf = KFold(n_splits=3)
     models = []
     RMSEs = []
     for train_index, test_index in kf.split(features):
-        train_features = features.loc[train_index]
-        train_target = target.loc[train_index]
+        tr_x, tr_y= features.loc[train_index], target.loc[train_index]
+        vl_x, vl_y = features.loc[test_index], target.loc[test_index]
 
-        test_features = features.loc[test_index]
-        test_target = target.loc[test_index]
-
-        d_training = lgb.Dataset(train_features, label=train_target, categorical_feature=categorical_features,
-                                 free_raw_data=False)
-        d_test = lgb.Dataset(test_features, label=test_target, categorical_feature=categorical_features,
-                             free_raw_data=False)
+        d_training = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical_features)
+        d_test = lgb.Dataset(vl_x, label=vl_y, categorical_feature=categorical_features)
 
         model = lgb.train(params, train_set=d_training, num_boost_round=1000, valid_sets=[d_training, d_test],
                           verbose_eval=False, early_stopping_rounds=50)
         models.append(model)
 
-        y_pred = model.predict(test_features, num_iteration=model.best_iteration)
-        rmse = np.sqrt(mean_squared_error(test_target, y_pred))
+        y_pred = model.predict(vl_x, num_iteration=model.best_iteration)
+        rmse = np.sqrt(mean_squared_error(vl_y, y_pred))
         print("single rmse:", rmse)
         RMSEs.append(rmse)
 
-        del train_features, train_target, test_features, test_target, d_training, d_test
+        del tr_x, tr_y, vl_x, vl_y, d_training, d_test
         gc.collect()
 
     print("3 floder mean RMSE：", np.mean(RMSEs))
@@ -225,7 +334,8 @@ if __name__ == '__main__':
 
     # Important Features
     for model in models:
-        lgb.plot_importance(model)
+        plt.figure(figsize=(12, 12))
+        lgb.plot_importance(model, importance_type="gain")
         plt.show()
 
     # Load Test Data
@@ -247,6 +357,8 @@ if __name__ == '__main__':
     gc.collect()
 
     test_df = features_engineering(test_df)
+    # test_df = test_df.merge(df_building_meter, on=["building_id", "meter"])
+    # test_df = test_df.merge(df_building_meter_hour, on=["building_id", "meter", "hour"])
 
     # predict
     results = []
