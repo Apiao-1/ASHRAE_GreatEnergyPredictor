@@ -327,13 +327,13 @@ if __name__ == '__main__':
     # 调参范围
     adj_params = {
         'min_child_weight': (3, 50),
-        'feature_fraction': (0.5, 1),
+        'feature_fraction': (0.3, 1),
         # 'max_depth': (4, 15),
-        'num_leaves':(1,1300),
-        'bagging_fraction': (0.5, 1),
+        'num_leaves':(30,1300),
+        'bagging_fraction': (0.3, 1),
         'bagging_freq': (1, 10),
-        'lambda_l2': (0.1, 1),
-        'lambda_l1': (0.1, 1),
+        'lambda_l2': (0.1, 2),
+        # 'lambda_l1': (0.1, 1),
         'min_data_in_leaf': (1, 150)
     }
 
