@@ -255,7 +255,7 @@ def data(df):
     # df['group'].replace((9, 10, 11), 4, inplace=True)
     # print(df['group'].value_counts())
 
-    # df = df.drop(["sea_level_pressure",  "wind_direction", "wind_speed"], axis=1)
+    df = df.drop(["sea_level_pressure",  "wind_direction", "wind_speed"], axis=1)
     return df
 
 
@@ -369,10 +369,10 @@ if __name__ == '__main__':
         print(params)
 
         train = create_train(meter=m)
-        target_encoder = ce.TargetEncoder(cols=["building_id"]).fit(train, train['meter_reading'])
-        train = target_encoder.transform(train)
-        print(train.shape)
-        print(train.head())
+        # target_encoder = ce.TargetEncoder(cols=["building_id"]).fit(train, train['meter_reading'])
+        # train = target_encoder.transform(train)
+        # print(train.shape)
+        # print(train.head())
 
         oof_train = np.zeros((train.shape[0]))
 
@@ -457,7 +457,7 @@ if __name__ == '__main__':
 
 
         test = create_test(meter=m)
-        test = target_encoder.transform(test)
+        # test = target_encoder.transform(test)
 
         predictions(meter=m, test=test, models=models)
 
