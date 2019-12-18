@@ -345,27 +345,44 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
                  bagging_freq):
     """自定义的模型评估函数"""
 
+    global flag
+    if flag:
+        params = {
+            # 'min_data_in_leaf': 1, 'bagging_freq': 1, 'min_child_weight': 50,
+            #           'lambda_l2': 0.35679677039439106, 'bagging_fraction': 0.9999999999911137, 'num_leaves': 372,
+            #           'feature_fraction': 0.3060617622234653,
+            'bagging_freq': 9, 'lambda_l2': 0.20866961853961202, 'min_child_weight': 47,
+                      'feature_fraction': 0.4816474356267998, 'bagging_fraction': 0.8211493228794307,
+                      'num_leaves': 1295, 'min_data_in_leaf': 147,
+
+            # 'min_child_weight': 50, 'feature_fraction': 0.30000000000656196, 'bagging_fraction': 0.8846794189248148,
+            #          'lambda_l2': 0.15164557857011038, 'bagging_freq': 1, 'min_data_in_leaf': 1,
+            #          'num_leaves': 570,
+
+            # 'lambda_l2': 1.9999999998017384, 'num_leaves': 1300, 'min_child_weight': 50,
+            #           'feature_fraction': 0.3, 'min_data_in_leaf': 1, 'bagging_fraction': 0.3, 'bagging_freq': 1,
+
+            'objective': 'regression',
+            'learning_rate': 0.1,
+            "boosting": "gbdt",
+            "metric": 'rmse',
+            # 'num_threads': config['workers'],
+            'seed': 4534,
+            "verbosity": -1,
+        }
+        find_best_param(m, X, y, params)
+        flag = False
+
     # 模型固定的超参数
     param = {
         'objective': 'regression',
-        'learning_rate': 0.05,
+        'learning_rate': 0.1,
         "boosting": "gbdt",
         "metric": 'rmse',
         # 'num_threads': config['workers'],
         'seed': 4534,
         "verbosity": -1,
     }
-
-    global flag
-    if flag:
-        param.update({
-            'num_leaves': 526,
-            'max_depth': 12,
-            'bagging_fraction': 0.10081820060774621,
-            'feature_fraction': 0.7742020727078566,
-        })
-        find_best_param(m, X, y, param)
-        flag = False
 
     # 贝叶斯优化器生成的超参数
     param['min_child_weight'] = int(min_child_weight)
@@ -388,7 +405,7 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
 def BayesianSearch(clf, params):
     """贝叶斯优化器"""
     # 迭代次数
-    num_iter = 20
+    num_iter = 40
     init_points = 5
     # 创建一个贝叶斯优化对象，输入为自定义的模型评估函数与超参数的范围
     bayes = BayesianOptimization(clf, params)
