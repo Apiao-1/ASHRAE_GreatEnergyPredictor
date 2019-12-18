@@ -30,17 +30,14 @@ sys.stdout = Unbuffered(sys.stdout)
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import lightgbm as lgb
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 from sklearn.metrics import mean_squared_error
-from tqdm import tqdm_notebook as tqdm
 import datetime
 from sklearn import metrics
 from meteocalc import feels_like, Temp
 import gc
-import os
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -307,7 +304,7 @@ if __name__ == '__main__':
                  }
         oof = np.zeros(len(train))
 
-        for tr_idx, val_idx in tqdm(kf.split(train, train['month']), total=folds):
+        for tr_idx, val_idx in kf.split(train, train['month']):
             tr_x, tr_y = train[features].iloc[tr_idx], train[target].iloc[tr_idx]
             vl_x, vl_y = train[features].iloc[val_idx], train[target].iloc[val_idx]
             tr_data = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical)
@@ -355,7 +352,7 @@ if __name__ == '__main__':
         set_size = len(test_df)
         batch_size = set_size // iterations
         meter_reading = []
-        for i in tqdm(range(iterations)):
+        for i in range(iterations):
             pos = i * batch_size
             fold_preds = [np.expm1(model.predict(test_df[features].iloc[pos: pos + batch_size])) for model in models]
             meter_reading.extend(np.mean(fold_preds, axis=0))
