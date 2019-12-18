@@ -13,19 +13,26 @@ import os
 os.system('pip install lightgbm')
 os.system('pip install meteocalc')
 os.system('pip install seaborn')
+os.system('pip install category_encoders')
+# os.system('pip install feather-format')
 
 # 查看内存和cpu
 os.system('free -g')
 os.system('cat /proc/cpuinfo| grep "processor"| wc -l')
 
+
 class Unbuffered(object):
     def __init__(self, stream):
         self.stream = stream
+
     def write(self, data):
         self.stream.write(data)
         self.stream.flush()
+
     def __getattr__(self, attr):
         return getattr(self.stream, attr)
+
+
 sys.stdout = Unbuffered(sys.stdout)
 
 import gc
@@ -33,20 +40,15 @@ import gc
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-
 import datetime
 from meteocalc import feels_like, Temp
-
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import GroupKFold
-
+from sklearn.model_selection import GroupKFold, KFold
 from sklearn.preprocessing import LabelEncoder
-
 import seaborn as sns
 from matplotlib import pyplot as plt
-
 from datetime import datetime, date, timedelta
-
+import category_encoders as ce
 from collections import defaultdict
 from collections import Counter
 import warnings
@@ -271,10 +273,17 @@ def data(df):
     df["is_holiday"] = (df.timestamp.dt.date.isin(holidays)).astype(int)
 
     df['group'] = df['timestamp'].dt.month
+    # print(df['group'].value_counts())
     df['group'].replace((1, 2, 3, 4), 1, inplace=True)
     df['group'].replace((5, 6, 7, 8), 2, inplace=True)
     df['group'].replace((9, 10, 11, 12), 3, inplace=True)
+    # df['group'].replace((12, 1, 2), 1, inplace=True)
+    # df['group'].replace((3, 4, 5), 2, inplace=True)
+    # df['group'].replace((6, 7, 8), 3, inplace=True)
+    # df['group'].replace((9, 10, 11), 4, inplace=True)
+    # print(df['group'].value_counts())
 
+    # df = df.drop(["sea_level_pressure",  "wind_direction", "wind_speed"], axis=1)
     return df
 
 
@@ -306,7 +315,7 @@ def create_train(meter=0):
 def create_test(meter=0):
     test = pd.read_csv(DATA_PATH + "test.csv")
     test = reduce_mem_usage(test, use_float16=True)
-    building = data_building(file_dir=DATA_PATH + "building_metadata.csv")
+    building = data_building(file_dir=DATA_PATH + "building.csv")
     test = test.merge(building, left_on='building_id', right_on='building_id', how='left')
     weather = data_weather(file_dir=DATA_PATH + "weather_test.csv")
     test = test.merge(weather, how='left', on=['site_id', 'timestamp'])
@@ -347,23 +356,33 @@ if __name__ == '__main__':
     # DATA_PATH = "/home/aistudio/data/data17604/"
     DATA_PATH = "/cos_person/notebook/100009019970/data/"
 
-    # RESULT_PATH = "/cos_person/notebook/100009019970/"
-    RESULT_PATH = "/cos_person/notebook/100009019970/results_baseline/"
+    RESULT_PATH = "/cos_person/notebook/100009019970/results/"
+    # RESULT_PATH = "/cos_person/notebook/100009019970/results1/"
 
     for m in range(4):
         params = {}
         if m == 0:
-            params = {'num_leaves': 526, 'max_depth': 12, 'bagging_fraction': 0.10081820060774621,
-                      'feature_fraction': 0.7742020727078566}
+            # params = {'num_leaves': 526, 'max_depth': 12, 'bagging_fraction': 0.10081820060774621,
+            #           'feature_fraction': 0.7742020727078566}
+            params = {'bagging_freq': 9, 'lambda_l2': 0.20866961853961202, 'min_child_weight': 47,
+                      'feature_fraction': 0.4816474356267998, 'bagging_fraction': 0.8211493228794307,
+                      'num_leaves': 1295, 'min_data_in_leaf': 147, }
         if m == 1:
-            params = {'num_leaves': 261, 'max_depth': 10, 'bagging_fraction': 0.26016952708832514,
-                      'feature_fraction': 0.5491805155524557}
+            # params = {'num_leaves': 261, 'max_depth': 10, 'bagging_fraction': 0.26016952708832514,
+            #           'feature_fraction': 0.5491805155524557}
+            params = {'min_data_in_leaf': 1, 'bagging_freq': 1, 'min_child_weight': 50,
+                      'lambda_l2': 0.35679677039439106, 'bagging_fraction': 0.9999999999911137, 'num_leaves': 372,
+                      'feature_fraction': 0.3060617622234653}
         if m == 2:
-            params = {'num_leaves': 305, 'max_depth': 12, 'bagging_fraction': 0.9788344136664392,
-                      'feature_fraction': 0.7869347797200678}
+            # params = {'num_leaves': 305, 'max_depth': 12, 'bagging_fraction': 0.9788344136664392,
+            #           'feature_fraction': 0.7869347797200678}
+            param = {'min_child_weight': 50, 'feature_fraction': 0.30000000000656196,
+                     'bagging_fraction': 0.8846794189248148,
+                     'lambda_l2': 0.15164557857011038, 'bagging_freq': 1, 'min_data_in_leaf': 1,
+                     'num_leaves': 570}
         if m == 3:
-            params = {'num_leaves': 917, 'max_depth': 11, 'bagging_fraction': 0.15036565575986183,
-                      'feature_fraction': 0.3663760577105429}
+            param = {'bagging_fraction': 1.0, 'feature_fraction': 0.3, 'bagging_freq': 1, 'min_child_weight': 50,
+                     'num_leaves': 939, 'lambda_l2': 0.1, 'min_data_in_leaf': 1, }
 
         params.update({
             'objective': 'regression',
@@ -377,6 +396,10 @@ if __name__ == '__main__':
         print(params)
 
         train = create_train(meter=m)
+        target_encoder = ce.TargetEncoder(cols=["building_id"]).fit(train, train['meter_reading'])
+        train = target_encoder.transform(train)
+        print(train.shape)
+        print(train.head())
 
         oof_train = np.zeros((train.shape[0]))
 
@@ -421,12 +444,15 @@ if __name__ == '__main__':
 
         validation = pd.DataFrame({
             'meter_reading': y_true,
-            "meter_reading_oof": oof_train
+            "meter_reading_oof": oof_train,
+            # 'building_id': train['building_id'],
+            # 'meter': meter,
+            # 'timestamp': timestamp,
         })
 
-        save_file = "validation_model=%s_meter=%s.csv" % ("lightgbm", m)
+        save_file = RESULT_PATH + "validation_model=%s_meter=%s.csv" % ("lightgbm", m)
         validation.to_csv(save_file, index=False)
-        print("write file finished, location: results/validation_model=%s_meter=%s.csv" % ("lightgbm", m))
+        print("write file finished, location: validation_model=%s_meter=%s.csv" % ("lightgbm", m))
 
         score = np.sqrt(mean_squared_error(y_true, oof_train))
         print('total Validation: %s' % (score))
@@ -455,18 +481,21 @@ if __name__ == '__main__':
                 "meter_reading": np.clip(meter_reading, a_min=0, a_max=None)
             })
 
-            save_file = "submission_model=%s_meter=%s.csv" % ("lightgbm", m)
+            save_file = RESULT_PATH + "submission_model=%s_meter=%s.csv" % ("lightgbm", m)
 
             submission.to_csv(save_file, index=False)
 
 
+        test = create_test(meter=m)
+        test = target_encoder.transform(test)
+
         predictions(meter=m, test=test, models=models)
 
     prediction_files = [
-        ('validation_model=lightgbm_meter=0.csv'),
-        ('validation_model=lightgbm_meter=1.csv'),
-        ('validation_model=lightgbm_meter=2.csv'),
-        ('validation_model=lightgbm_meter=3.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=0.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=1.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=2.csv'),
+        (RESULT_PATH + 'validation_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -476,18 +505,18 @@ if __name__ == '__main__':
 
     print(np.sqrt(mean_squared_error(predictions['meter_reading'], predictions['meter_reading_oof'])))
 
-    save_file = "validation.csv"
+    save_file = RESULT_PATH + "validation.csv"
     predictions.to_csv(save_file, index=False)
 
-    plt.figure()
-    sns.distplot(predictions['meter_reading']).set_title("Train-Test Distribution")
-    sns.distplot(predictions['meter_reading_oof'])
+    # plt.figure()
+    # sns.distplot(predictions['meter_reading']).set_title("Train-Test Distribution")
+    # sns.distplot(predictions['meter_reading_oof'])
 
     prediction_files = [
-        ('submission_model=lightgbm_meter=0.csv'),
-        ('submission_model=lightgbm_meter=1.csv'),
-        ('submission_model=lightgbm_meter=2.csv'),
-        ('submission_model=lightgbm_meter=3.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=0.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=1.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=2.csv'),
+        (RESULT_PATH + 'submission_model=lightgbm_meter=3.csv'),
     ]
 
     predictions = pd.DataFrame()
@@ -501,7 +530,7 @@ if __name__ == '__main__':
     test = test.merge(predictions, on=['row_id'])
     leak_validation(test)
 
-    save_file = 'submission.csv'
+    save_file = RESULT_PATH + 'submission.csv'
     predictions.to_csv(save_file, index=False)
 
     print(predictions.head())
