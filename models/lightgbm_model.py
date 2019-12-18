@@ -174,19 +174,19 @@ def impute_weather(weather_df):
     weather_df.update(due_temperature_filler, overwrite=False)
 
     # Step 1
-    sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
-    # Step 2
-    sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
+    # sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
+    # # Step 2
+    # sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
+    #
+    # weather_df.update(sea_level_filler, overwrite=False)
+    #
+    # wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
+    #                                      columns=['wind_direction'])
+    # weather_df.update(wind_direction_filler, overwrite=False)
 
-    weather_df.update(sea_level_filler, overwrite=False)
-
-    wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
-                                         columns=['wind_direction'])
-    weather_df.update(wind_direction_filler, overwrite=False)
-
-    wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
-                                     columns=['wind_speed'])
-    weather_df.update(wind_speed_filler, overwrite=False)
+    # wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
+    #                                  columns=['wind_speed'])
+    # weather_df.update(wind_speed_filler, overwrite=False)
 
     # Step 1
     precip_depth_filler = weather_df.groupby(['site_id', 'day', 'month'])['precip_depth_1_hr'].mean()
@@ -243,6 +243,11 @@ def data(df):
         "2018-09-03", "2018-10-08", "2018-11-12", "2018-11-22", "2018-12-25",
         "2019-01-01"]
     df["is_holiday"] = (df.timestamp.dt.date.isin(holidays)).astype(int)
+    df['month'].replace((12, 1, 2), 1, inplace=True)
+    df['month'].replace((3, 4, 5), 2, inplace=True)
+    df['month'].replace((6, 7, 8), 3, inplace=True)
+    df['month'].replace((9, 10, 11), 4, inplace=True)
+    df['square_feet'] = np.log1p(df['square_feet'])
 
     df['group'] = df['timestamp'].dt.month
     # print(df['group'].value_counts())
