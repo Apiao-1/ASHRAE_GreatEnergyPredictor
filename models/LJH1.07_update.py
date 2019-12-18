@@ -1,10 +1,40 @@
-# !pip install meteocalc
+
+import os
+import sys
+
+# os.system('pip install lightgbm --user')
+# os.system('pip install meteocalc --user')
+# os.system('pip install seaborn --user')
+
+os.system('pip install lightgbm')
+os.system('pip install meteocalc')
+os.system('pip install seaborn')
+os.system('pip install category_encoders')
+# 查看内存和cpu
+os.system('free -g')
+os.system('cat /proc/cpuinfo| grep "processor"| wc -l')
+
+class Unbuffered(object):
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, data):
+        self.stream.write(data)
+        self.stream.flush()
+
+    def __getattr__(self, attr):
+        return getattr(self.stream, attr)
+
+
+sys.stdout = Unbuffered(sys.stdout)
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import lightgbm as lgb
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
+from sklearn.metrics import mean_squared_error
 from tqdm import tqdm_notebook as tqdm
 import datetime
 from sklearn import metrics
@@ -13,6 +43,7 @@ import gc
 import os
 import warnings
 warnings.filterwarnings("ignore")
+
 
 # Original code from https://www.kaggle.com/gemartin/load-data-reduce-memory-usage by @gemartin
 
@@ -191,21 +222,45 @@ def features_engineering(df):
 
     return df
 
+def leak_validation(test_df):
+    leak_df = pd.read_csv(DATA_PATH + 'leak.csv')
+    # leak_df = pd.read_feather(DATA_PATH + 'leak.feather')
+    leak_df.fillna(0, inplace=True)
+    leak_df["time"] = pd.to_datetime(leak_df["timestamp"])
+    leak_df = leak_df[(leak_df.time.dt.year > 2016) & (leak_df.time.dt.year < 2019)]
+    leak_df.loc[leak_df.meter_reading < 0, 'meter_reading'] = 0  # remove large negative values
+    leak_df = leak_df[leak_df.building_id != 245]
+    print(leak_df.head(20))
+
+    leak_df = leak_df.merge(test_df,
+                            left_on=['building_id', 'meter', 'timestamp'],
+                            right_on=['building_id', 'meter', 'timestamp'], how="left")
+    print(leak_df.head(20))
+    leak_df['pred1_l1p'] = np.log1p(leak_df.meter_reading_y)
+    leak_df['meter_reading_l1p'] = np.log1p(leak_df.meter_reading_x)
+    curr_score = np.sqrt(mean_squared_error(leak_df.pred1_l1p, leak_df.meter_reading_l1p))
+    del leak_df
+    print('leak Validation: %s' % (curr_score))
+    return curr_score
+
 if __name__ == '__main__':
-    train_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/train.csv')
-    building_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/building_metadata.csv')
-    weather_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/weather_train.csv')
+
+    DATA_PATH = "/cos_person/notebook/100009019970/data/"
+    RESULT_PATH = "/cos_person/notebook/100009019970/results/"
+
+    train_df = pd.read_csv(DATA_PATH + 'train.csv')
+    building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
+    weather_df = pd.read_csv(DATA_PATH + 'weather_train.csv')
 
     # eliminate bad rows
-    bad_rows = pd.read_csv('/kaggle/input/bad-rows/rows_to_drop.csv')
+    bad_rows = pd.read_csv(DATA_PATH + 'rows_to_drop.csv')
     train_df.drop(bad_rows.loc[:, '0'], inplace = True)
     train_df.reset_index(drop = True, inplace = True)
 
     # weather manipulation
     weather_df = fill_weather_dataset(weather_df)
-
-    # memory reduction
     train_df = reduce_mem_usage(train_df, use_float16=True)
+
     building_df = reduce_mem_usage(building_df, use_float16=True)
     weather_df = reduce_mem_usage(weather_df, use_float16=True)
 
@@ -222,9 +277,9 @@ if __name__ == '__main__':
     # transform target variable
     train_df['meter_reading'] = np.log1p(train_df["meter_reading"])
 
-    drop = ["sea_level_pressure", "wind_direction", "wind_speed"]
-    train_df = train_df.drop(drop, axis=1)
-    gc.collect()
+    # drop = ["sea_level_pressure", "wind_direction", "wind_speed"]
+    # train_df = train_df.drop(drop, axis=1)
+    # gc.collect()
 
     # declare target, categorical and numeric columns
     target = 'meter_reading'
@@ -232,10 +287,9 @@ if __name__ == '__main__':
     numeric_cols = [col for col in train_df.columns if col not in categorical + [target, 'timestamp', 'month']]
     features = categorical + numeric_cols
 
-    import seaborn as sns
-
-
     def run_lgbm(train, cat_features=categorical, num_rounds=20000, folds=3):
+        print(train.shape)
+        print(train.head())
         kf = StratifiedKFold(n_splits=folds, shuffle=False, random_state=42)
         models = []
         score = []
@@ -272,7 +326,7 @@ if __name__ == '__main__':
     models, score = run_lgbm(train_df)
     print(np.mean(score))
     # read test
-    test_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/test.csv')
+    test_df = pd.read_csv(DATA_PATH + 'test.csv')
     row_ids = test_df["row_id"]
     test_df.drop("row_id", axis=1, inplace=True)
     test_df = reduce_mem_usage(test_df)
@@ -283,7 +337,7 @@ if __name__ == '__main__':
     gc.collect()
 
     # fill test weather data
-    weather_df = pd.read_csv('/kaggle/input/ashrae-energy-prediction/weather_test.csv')
+    weather_df = pd.read_csv(DATA_PATH + 'weather_test.csv')
     weather_df = fill_weather_dataset(weather_df)
     weather_df = reduce_mem_usage(weather_df)
 
@@ -308,9 +362,14 @@ if __name__ == '__main__':
 
         print(len(meter_reading))
         assert len(meter_reading) == set_size
-        submission = pd.read_csv('/kaggle/input/ashrae-energy-prediction/sample_submission.csv')
+        submission = pd.read_csv(DATA_PATH + 'sample_submission.csv')
         submission['meter_reading'] = np.clip(meter_reading, a_min=0, a_max=None)  # clip min at zero
-        submission.to_csv('fe2_lgbm.csv', index=False)
+
+        test = pd.read_csv(DATA_PATH + "test.csv")
+        test = test.merge(submission, on=['row_id'])
+        leak_validation(test)
+
+        submission.to_csv(RESULT_PATH + 'fe2_lgbm.csv', index=False)
         print('We are done!')
 
 
