@@ -33,13 +33,20 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
-from sklearn.metrics import mean_squared_error
 import datetime
 from sklearn import metrics
 from meteocalc import feels_like, Temp
 import gc
 import warnings
 warnings.filterwarnings("ignore")
+import warnings
+from sklearn.metrics import mean_squared_error
+
+warnings.filterwarnings('ignore')
+pd.set_option('expand_frame_repr', False)
+pd.set_option('display.max_rows', 50)
+pd.set_option('display.max_columns', 200)
+
 
 
 # Original code from https://www.kaggle.com/gemartin/load-data-reduce-memory-usage by @gemartin
