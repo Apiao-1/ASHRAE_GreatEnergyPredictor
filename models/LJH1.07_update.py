@@ -139,20 +139,20 @@ def fill_weather_dataset(weather_df):
                                           columns=["dew_temperature"])
     weather_df.update(due_temperature_filler, overwrite=False)
 
-    # Step 1
-    sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
-    # Step 2
-    sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
-
-    weather_df.update(sea_level_filler, overwrite=False)
-
-    wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
-                                         columns=['wind_direction'])
-    weather_df.update(wind_direction_filler, overwrite=False)
-
-    wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
-                                     columns=['wind_speed'])
-    weather_df.update(wind_speed_filler, overwrite=False)
+    # # Step 1
+    # sea_level_filler = weather_df.groupby(['site_id', 'day', 'month'])['sea_level_pressure'].mean()
+    # # Step 2
+    # sea_level_filler = pd.DataFrame(sea_level_filler.fillna(method='ffill'), columns=['sea_level_pressure'])
+    #
+    # weather_df.update(sea_level_filler, overwrite=False)
+    #
+    # wind_direction_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_direction'].mean(),
+    #                                      columns=['wind_direction'])
+    # weather_df.update(wind_direction_filler, overwrite=False)
+    #
+    # wind_speed_filler = pd.DataFrame(weather_df.groupby(['site_id', 'day', 'month'])['wind_speed'].mean(),
+    #                                  columns=['wind_speed'])
+    # weather_df.update(wind_speed_filler, overwrite=False)
 
     # Step 1
     precip_depth_filler = weather_df.groupby(['site_id', 'day', 'month'])['precip_depth_1_hr'].mean()
@@ -189,6 +189,11 @@ def fill_weather_dataset(weather_df):
         return data
 
     weather_df = get_meteorological_features(weather_df)
+
+    weather_df['air_temperature_m3'] = weather_df['air_temperature'].shift(-3)
+    weather_df['air_temperature_m2'] = weather_df['air_temperature'].shift(-2)
+    weather_df['air_temperature_m1'] = weather_df['air_temperature'].shift(-1)
+
     return weather_df
 
 
@@ -316,7 +321,7 @@ if __name__ == '__main__':
             vl_x, vl_y = train[features].iloc[val_idx], train[target].iloc[val_idx]
             tr_data = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical)
             vl_data = lgb.Dataset(vl_x, label=vl_y, categorical_feature=categorical)
-            clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=100,
+            clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=False,
                             early_stopping_rounds=50)
             models.append(clf)
             oof[val_idx] = clf.predict(vl_x, num_iteration=clf.best_iteration)
