@@ -203,6 +203,16 @@ def features_engineering(df):
     df["hour"] = df["timestamp"].dt.hour
     df["dayofweek"] = df["timestamp"].dt.dayofweek
 
+    # df["dayofweek"] = df["timestamp"].dt.weekday
+    # holidays = ["2016-01-01", "2016-01-18", "2016-02-15", "2016-05-30", "2016-07-04",
+    #             "2016-09-05", "2016-10-10", "2016-11-11", "2016-11-24", "2016-12-26",
+    #             "2017-01-02", "2017-01-16", "2017-02-20", "2017-05-29", "2017-07-04",
+    #             "2017-09-04", "2017-10-09", "2017-11-10", "2017-11-23", "2017-12-25",
+    #             "2018-01-01", "2018-01-15", "2018-02-19", "2018-05-28", "2018-07-04",
+    #             "2018-09-03", "2018-10-08", "2018-11-12", "2018-11-22", "2018-12-25",
+    #             "2019-01-01"]
+    # df["is_holiday"] = (df.timestamp.isin(holidays)).astype(int)
+
     df['month'] = df['timestamp'].dt.month
     df['month'].replace((12, 1, 2), 1, inplace=True)
     df['month'].replace((3, 4, 5), 2, inplace=True)
@@ -244,6 +254,12 @@ def leak_validation(test_df):
     print('leak Validation: %s' % (curr_score))
     return curr_score
 
+def q80(x):
+    return x.quantile(0.8)
+
+def q30(x):
+    return x.quantile(0.3)
+
 
 if __name__ == '__main__':
 
@@ -275,6 +291,14 @@ if __name__ == '__main__':
 
     # feature engineering
     train_df = features_engineering(train_df)
+    # agg
+    # temp = train_df[['building_id', 'meter', 'meter_reading']].groupby(['building_id', 'meter']).agg({"meter_reading": [
+    #     'min', 'max', 'mean', 'std', 'skew', 'median', q80, q30, pd.DataFrame.kurt, 'mad', np.ptp]})
+    # temp.columns = ['meter_min', 'meter_max', 'meter_mean', 'meter_std', 'meter_skew', 'meter_median', 'meter_q80',
+    #                 'meter_q30', 'meter_kurt', 'meter_mad', 'meter_ptp']
+    # print(temp.shape)
+    # print(temp.head(5))
+    # train_df = pd.merge(train_df, temp,  how='left', on=['building_id', 'meter'])
 
     # transform target variable
     train_df['meter_reading'] = np.log1p(train_df["meter_reading"])
@@ -286,24 +310,28 @@ if __name__ == '__main__':
     # declare target, categorical and numeric columns
     target = 'meter_reading'
     categorical = ['building_id', 'site_id', 'primary_use', 'meter', 'dayofweek']
+    # categorical = ['building_id', 'site_id', 'primary_use', 'meter', 'is_holiday', 'dayofweek']
     numeric_cols = [col for col in train_df.columns if col not in categorical + [target, 'timestamp', 'month']]
     features = categorical + numeric_cols
 
-
+    # try fold 4
     def run_lgbm(train, cat_features=categorical, num_rounds=20000, folds=5):
+        print(train.shape)
+        print(train.head())
         kf = StratifiedKFold(n_splits=folds, shuffle=False, random_state=2319)
         models = []
         # feature_importance_df = pd.DataFrame()
 
-        param = {'num_leaves': 3160,
+        param = {'num_leaves': 500,
                  'objective': 'regression',
                  'learning_rate': 0.05,
                  'boosting': 'gbdt',
-                 'subsample': 0.5,
                  'feature_fraction': 0.7,
                  'n_jobs': -1,
                  'seed': 50,
-                 'metric': 'rmse'
+                 'metric': 'rmse',
+                 "reg_lambda": 1.2,
+                 'subsample': 0.4
                  }
 
         oof = np.zeros(len(train))
@@ -322,7 +350,7 @@ if __name__ == '__main__':
             # feature_importance_df = pd.concat([feature_importance_df, fold_importance_df], axis=0)
 
             models.append(clf)
-            oof[val_idx] = clf.predict(vl_x)
+            oof[val_idx] = clf.predict(vl_x, num_iteration=clf.best_iteration)
             gc.collect()
         score = np.sqrt(metrics.mean_squared_error(train[target], np.clip(oof, a_min=0, a_max=None)))
         print('Our oof cv is :', score)
@@ -361,7 +389,7 @@ if __name__ == '__main__':
 
     # feature engineering
     test_df = features_engineering(test_df)
-
+    # test_df = pd.merge(test_df, temp,  how='left', on=['building_id', 'meter'])
 
     def predictions(models, iterations=120):
         # split test data into batches
