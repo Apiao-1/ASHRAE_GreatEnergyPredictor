@@ -1,4 +1,3 @@
-
 import os
 import sys
 
@@ -46,8 +45,6 @@ warnings.filterwarnings('ignore')
 pd.set_option('expand_frame_repr', False)
 pd.set_option('display.max_rows', 50)
 pd.set_option('display.max_columns', 200)
-
-
 
 # Original code from https://www.kaggle.com/gemartin/load-data-reduce-memory-usage by @gemartin
 
@@ -167,8 +164,8 @@ def fill_weather_dataset(weather_df):
     def get_meteorological_features(data):
         def calculate_rh(df):
             df['relative_humidity'] = 100 * (
-                        np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
-                    (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
+                    np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
+                (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
 
         def calculate_fl(df):
             flike_final = []
@@ -193,7 +190,6 @@ def fill_weather_dataset(weather_df):
     weather_df['air_temperature_m3'] = weather_df['air_temperature'].shift(-3)
     weather_df['air_temperature_m2'] = weather_df['air_temperature'].shift(-2)
     weather_df['air_temperature_m1'] = weather_df['air_temperature'].shift(-1)
-
     return weather_df
 
 
@@ -205,19 +201,14 @@ def features_engineering(df):
     # Add more features
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%Y-%m-%d %H:%M:%S")
     df["hour"] = df["timestamp"].dt.hour
-    df["dayofweek"] = df["timestamp"].dt.weekday
-    holidays = ["2016-01-01", "2016-01-18", "2016-02-15", "2016-05-30", "2016-07-04",
-                "2016-09-05", "2016-10-10", "2016-11-11", "2016-11-24", "2016-12-26",
-                "2017-01-02", "2017-01-16", "2017-02-20", "2017-05-29", "2017-07-04",
-                "2017-09-04", "2017-10-09", "2017-11-10", "2017-11-23", "2017-12-25",
-                "2018-01-01", "2018-01-15", "2018-02-19", "2018-05-28", "2018-07-04",
-                "2018-09-03", "2018-10-08", "2018-11-12", "2018-11-22", "2018-12-25",
-                "2019-01-01"]
+    df["dayofweek"] = df["timestamp"].dt.dayofweek
+
     df['month'] = df['timestamp'].dt.month
-    df['month'].replace((1, 2, 3, 4), 1, inplace=True)
-    df['month'].replace((5, 6, 7, 8), 2, inplace=True)
-    df['month'].replace((9, 10, 11, 12), 3, inplace=True)
-    df["is_holiday"] = (df.timestamp.isin(holidays)).astype(int)
+    df['month'].replace((12, 1, 2), 1, inplace=True)
+    df['month'].replace((3, 4, 5), 2, inplace=True)
+    df['month'].replace((6, 7, 8), 3, inplace=True)
+    df['month'].replace((9, 10, 11), 4, inplace=True)
+
     df['square_feet'] = np.log1p(df['square_feet'])
 
     # Remove Unused Columns
@@ -230,6 +221,7 @@ def features_engineering(df):
     df["primary_use"] = le.fit_transform(df["primary_use"])
 
     return df
+
 
 def leak_validation(test_df):
     leak_df = pd.read_csv(DATA_PATH + 'leak.csv')
@@ -252,6 +244,7 @@ def leak_validation(test_df):
     print('leak Validation: %s' % (curr_score))
     return curr_score
 
+
 if __name__ == '__main__':
 
     DATA_PATH = "/cos_person/notebook/100009019970/data/"
@@ -263,8 +256,8 @@ if __name__ == '__main__':
 
     # eliminate bad rows
     bad_rows = pd.read_csv(DATA_PATH + 'rows_to_drop.csv')
-    train_df.drop(bad_rows.loc[:, '0'], inplace = True)
-    train_df.reset_index(drop = True, inplace = True)
+    train_df.drop(bad_rows.loc[:, '0'], inplace=True)
+    train_df.reset_index(drop=True, inplace=True)
 
     # weather manipulation
     weather_df = fill_weather_dataset(weather_df)
@@ -292,48 +285,59 @@ if __name__ == '__main__':
 
     # declare target, categorical and numeric columns
     target = 'meter_reading'
-    categorical = ['building_id', 'site_id', 'primary_use', 'meter', 'is_holiday', 'dayofweek']
+    categorical = ['building_id', 'site_id', 'primary_use', 'meter', 'dayofweek']
     numeric_cols = [col for col in train_df.columns if col not in categorical + [target, 'timestamp', 'month']]
     features = categorical + numeric_cols
 
-    def run_lgbm(train, cat_features=categorical, num_rounds=20000, folds=3):
-        print(train.shape)
-        print(train.head())
-        kf = StratifiedKFold(n_splits=folds, shuffle=False, random_state=42)
-        models = []
-        score = []
 
-        param = {'num_leaves': 500,
+    def run_lgbm(train, cat_features=categorical, num_rounds=20000, folds=5):
+        kf = StratifiedKFold(n_splits=folds, shuffle=False, random_state=2319)
+        models = []
+        # feature_importance_df = pd.DataFrame()
+
+        param = {'num_leaves': 3160,
                  'objective': 'regression',
                  'learning_rate': 0.05,
                  'boosting': 'gbdt',
+                 'subsample': 0.5,
                  'feature_fraction': 0.7,
                  'n_jobs': -1,
                  'seed': 50,
-                 'metric': 'rmse',
-                 "reg_lambda": 1.2,
-                 'subsample': 0.4
+                 'metric': 'rmse'
                  }
+
         oof = np.zeros(len(train))
 
-        for tr_idx, val_idx in kf.split(train, train['month']):
+        for tr_idx, val_idx in kf.split(train_df, train_df['month']):
             tr_x, tr_y = train[features].iloc[tr_idx], train[target].iloc[tr_idx]
             vl_x, vl_y = train[features].iloc[val_idx], train[target].iloc[val_idx]
             tr_data = lgb.Dataset(tr_x, label=tr_y, categorical_feature=categorical)
             vl_data = lgb.Dataset(vl_x, label=vl_y, categorical_feature=categorical)
             clf = lgb.train(param, tr_data, num_rounds, valid_sets=[tr_data, vl_data], verbose_eval=False,
                             early_stopping_rounds=50)
+
+            # fold_importance_df = pd.DataFrame()
+            # fold_importance_df["feature"] = features
+            # fold_importance_df["importance"] = clf.feature_importance()
+            # feature_importance_df = pd.concat([feature_importance_df, fold_importance_df], axis=0)
+
             models.append(clf)
-            oof[val_idx] = clf.predict(vl_x, num_iteration=clf.best_iteration)
+            oof[val_idx] = clf.predict(vl_x)
             gc.collect()
-        score_ = np.sqrt(metrics.mean_squared_error(train[target], np.clip(oof, a_min=0, a_max=None)))
-        print('Our oof cv is :', score_)
-        score.append(score_)
-        return models, score
+        score = np.sqrt(metrics.mean_squared_error(train[target], np.clip(oof, a_min=0, a_max=None)))
+        print('Our oof cv is :', score)
+
+        # cols = (feature_importance_df[["feature", "importance"]]
+        #         .groupby("feature")
+        #         .mean()
+        #         .sort_values(by="importance", ascending=False)[:20].index)
+        # best_features = feature_importance_df.loc[feature_importance_df.feature.isin(cols)]
+
+        return models
 
 
-    models, score = run_lgbm(train_df)
-    print(np.mean(score))
+    models = run_lgbm(train_df)
+
     # read test
     test_df = pd.read_csv(DATA_PATH + 'test.csv')
     row_ids = test_df["row_id"]
@@ -378,7 +382,7 @@ if __name__ == '__main__':
         test = test.merge(submission, on=['row_id'])
         leak_validation(test)
 
-        submission.to_csv(RESULT_PATH + 'fe2_lgbm.csv', index=False)
+        submission.to_csv(RESULT_PATH + 'fe2_lgbm.csv', index=False, float_format='%.4f')
         print('We are done!')
 
 
