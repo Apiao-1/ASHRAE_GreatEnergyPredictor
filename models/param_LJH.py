@@ -45,10 +45,6 @@ from meteocalc import feels_like, Temp
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold
 from sklearn.preprocessing import LabelEncoder
-from datetime import datetime, date, timedelta
-import category_encoders as ce
-from collections import defaultdict
-from collections import Counter
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -100,6 +96,7 @@ def reduce_mem_usage(df, use_float16=False, verbose=False):
     if verbose: print("Decreased by {:.1f}%".format(100 * (start_mem - end_mem) / start_mem))
 
     return df
+
 
 # Original code from https://www.kaggle.com/aitude/ashrae-missing-weather-data-handling by @aitude
 def fill_weather_dataset(weather_df):
@@ -171,8 +168,8 @@ def fill_weather_dataset(weather_df):
     def get_meteorological_features(data):
         def calculate_rh(df):
             df['relative_humidity'] = 100 * (
-                        np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
-                    (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
+                    np.exp((17.625 * df['dew_temperature']) / (243.04 + df['dew_temperature'])) / np.exp(
+                (17.625 * df['air_temperature']) / (243.04 + df['air_temperature'])))
 
         def calculate_fl(df):
             flike_final = []
@@ -193,6 +190,10 @@ def fill_weather_dataset(weather_df):
         return data
 
     weather_df = get_meteorological_features(weather_df)
+
+    weather_df['air_temperature_m3'] = weather_df['air_temperature'].shift(-3)
+    weather_df['air_temperature_m2'] = weather_df['air_temperature'].shift(-2)
+    weather_df['air_temperature_m1'] = weather_df['air_temperature'].shift(-1)
     return weather_df
 
 
@@ -206,15 +207,26 @@ def features_engineering(df):
     df["hour"] = df["timestamp"].dt.hour
     df["dayofweek"] = df["timestamp"].dt.dayofweek
 
+    # df["dayofweek"] = df["timestamp"].dt.weekday
+    # holidays = ["2016-01-01", "2016-01-18", "2016-02-15", "2016-05-30", "2016-07-04",
+    #             "2016-09-05", "2016-10-10", "2016-11-11", "2016-11-24", "2016-12-26",
+    #             "2017-01-02", "2017-01-16", "2017-02-20", "2017-05-29", "2017-07-04",
+    #             "2017-09-04", "2017-10-09", "2017-11-10", "2017-11-23", "2017-12-25",
+    #             "2018-01-01", "2018-01-15", "2018-02-19", "2018-05-28", "2018-07-04",
+    #             "2018-09-03", "2018-10-08", "2018-11-12", "2018-11-22", "2018-12-25",
+    #             "2019-01-01"]
+    # df["is_holiday"] = (df.timestamp.isin(holidays)).astype(int)
+
     df['month'] = df['timestamp'].dt.month
-    df['month'].replace((1, 2, 3, 4), 1, inplace=True)
-    df['month'].replace((5, 6, 7, 8), 2, inplace=True)
-    df['month'].replace((9, 10, 11, 12), 3, inplace=True)
+    df['month'].replace((12, 1, 2), 1, inplace=True)
+    df['month'].replace((3, 4, 5), 2, inplace=True)
+    df['month'].replace((6, 7, 8), 3, inplace=True)
+    df['month'].replace((9, 10, 11), 4, inplace=True)
 
     df['square_feet'] = np.log1p(df['square_feet'])
 
     # Remove Unused Columns
-    drop = ["timestamp"]
+    drop = ["timestamp", "sea_level_pressure", "wind_direction", "wind_speed"]
     df = df.drop(drop, axis=1)
     gc.collect()
 
@@ -226,7 +238,7 @@ def features_engineering(df):
 
 
 def find_best_param(train, param):
-    kf = StratifiedKFold(n_splits=5, shuffle=False, random_state=2319)
+    kf = StratifiedKFold(n_splits=4, shuffle=False, random_state=2319)
     models = []
     oof = np.zeros(len(train))
 
@@ -259,17 +271,12 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
     global flag
     if flag:
         params = {
-            'num_leaves': 3160,
-            'objective': 'regression',
-            'learning_rate': 0.03,
-            'boosting': 'gbdt',
-            'subsample': 0.5,
-            'feature_fraction': 0.7,
-            'n_jobs': -1,
-            'seed': 50,
-            'metric': 'rmse'
+            'learning_rate': 0.1, 'min_child_weight': 22, 'verbosity': -1, 'lambda_l2': 1.998142408277971,
+            'min_data_in_leaf': 112, 'bagging_freq': 8, 'boosting': 'gbdt', 'metric': 'rmse',
+            'feature_fraction': 0.8596130116873613, 'num_leaves': 622, 'bagging_fraction': 0.4108272824009604,
+            'objective': 'regression', 'seed': 4534,
         }
-        find_best_param(m, X, y, params)
+        find_best_param(X, params)
         flag = False
 
     # 模型固定的超参数
@@ -296,7 +303,7 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
 
     # 5-flod 交叉检验，注意BayesianOptimization会向最大评估值的方向优化，因此对于回归任务需要取负数。
     # 这里的评估函数为neg_mean_squared_error，即负的MSE。
-    val = -find_best_param(m, X, y, param)
+    val = -find_best_param(X, param)
 
     return val
 
@@ -326,17 +333,14 @@ flag = True
 m = 0
 
 if __name__ == '__main__':
-    start = datetime.now()
-    print("start at:", start.strftime('%Y-%m-%d %H:%M:%S'))
-
     train_df = pd.read_csv(DATA_PATH + 'train.csv')
     building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
     weather_df = pd.read_csv(DATA_PATH + 'weather_train.csv')
 
     # eliminate bad rows
     bad_rows = pd.read_csv(DATA_PATH + 'rows_to_drop.csv')
-    train_df.drop(bad_rows.loc[:, '0'], inplace = True)
-    train_df.reset_index(drop = True, inplace = True)
+    train_df.drop(bad_rows.loc[:, '0'], inplace=True)
+    train_df.reset_index(drop=True, inplace=True)
 
     # weather manipulation
     weather_df = fill_weather_dataset(weather_df)
@@ -368,7 +372,6 @@ if __name__ == '__main__':
     numeric_cols = [col for col in train_df.columns if col not in categorical + [target, 'timestamp', 'month']]
     features = categorical + numeric_cols
 
-
     global X, y, group
     y = train_df['meter_reading']
     X = train_df
@@ -378,7 +381,7 @@ if __name__ == '__main__':
         'min_child_weight': (3, 50),
         'feature_fraction': (0.3, 1),
         # 'max_depth': (4, 15),
-        'num_leaves': (30, 1300),
+        'num_leaves': (30, 1800),
         'bagging_fraction': (0.3, 1),
         'bagging_freq': (1, 10),
         'lambda_l2': (0.1, 2),
@@ -391,6 +394,3 @@ if __name__ == '__main__':
 
     print("final best param: %s" % best_param)
     print("final best score: %f" % best_score)
-
-    end = datetime.now()
-    print("end at:", end.strftime('%Y-%m-%d %H:%M:%S'))
