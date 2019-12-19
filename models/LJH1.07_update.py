@@ -219,7 +219,7 @@ def features_engineering(df):
     df['month'].replace((6, 7, 8), 3, inplace=True)
     df['month'].replace((9, 10, 11), 4, inplace=True)
 
-    df['square_feet'] = np.log1p(df['square_feet'])
+    # df['square_feet'] = np.log1p(df['square_feet'])
 
     # Remove Unused Columns
     drop = ["timestamp", "sea_level_pressure", "wind_direction", "wind_speed"]
@@ -227,8 +227,8 @@ def features_engineering(df):
     gc.collect()
 
     # Encode Categorical Data
-    le = LabelEncoder()
-    df["primary_use"] = le.fit_transform(df["primary_use"])
+    # le = LabelEncoder()
+    # df["primary_use"] = le.fit_transform(df["primary_use"])
 
     return df
 
@@ -254,6 +254,26 @@ def leak_validation(test_df):
     print('leak Validation: %s' % (curr_score))
     return curr_score
 
+
+def data_building(file_dir=None):
+    building = pd.read_csv(file_dir)
+    building = reduce_mem_usage(building, use_float16=True)
+
+    le = LabelEncoder()
+    building["primary_use"] = le.fit_transform(building["primary_use"])
+
+    sq_m = building.loc[(building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet']
+    building.loc[
+        (building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet'] = sq_m * 10.7639
+    # building['floor_count'] = building['floor_count']
+    # building['year_built'] = building['year_built']
+    building["square_feet_floor"] = building['square_feet'] / building['floor_count']
+    building['square_feet_floor'] = building['square_feet_floor'].replace(np.inf, building['square_feet'])
+    building['square_feet'] = np.log1p(building['square_feet'])
+    building['square_feet_floor'] = np.log1p(building['square_feet_floor'])
+
+    return building
+
 def q80(x):
     return x.quantile(0.8)
 
@@ -267,7 +287,7 @@ if __name__ == '__main__':
     RESULT_PATH = "/cos_person/notebook/100009019970/results/"
 
     train_df = pd.read_csv(DATA_PATH + 'train.csv')
-    building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
+    # building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
     weather_df = pd.read_csv(DATA_PATH + 'weather_train.csv')
 
     # eliminate bad rows
@@ -279,8 +299,9 @@ if __name__ == '__main__':
     weather_df = fill_weather_dataset(weather_df)
     train_df = reduce_mem_usage(train_df, use_float16=True)
 
-    building_df = reduce_mem_usage(building_df, use_float16=True)
+    # building_df = reduce_mem_usage(building_df, use_float16=True)
     weather_df = reduce_mem_usage(weather_df, use_float16=True)
+    building_df = data_building(DATA_PATH + 'building_metadata.csv')
 
     # merge data
     train_df = train_df.merge(building_df, left_on='building_id', right_on='building_id', how='left')
