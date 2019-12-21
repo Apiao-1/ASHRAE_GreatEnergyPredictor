@@ -252,6 +252,12 @@ def leak_validation(test_df):
     print('leak Validation: %s' % (curr_score))
     return curr_score
 
+def q80(x):
+    return x.quantile(0.8)
+
+def q30(x):
+    return x.quantile(0.3)
+
 if __name__ == '__main__':
 
     DATA_PATH = "/cos_person/notebook/100009019970/data/"
@@ -282,6 +288,9 @@ if __name__ == '__main__':
 
     # feature engineering
     train_df = features_engineering(train_df)
+    # agg
+    temp = train_df.groupby(['building_id', 'meter']).agg({"meter_reading": ['max', 'mean', 'std', 'skew', 'median', q80,q30, pd.DataFrame.kurt, 'mad', np.ptp]})
+    train_df = pd.merge(train_df, temp,  how='left', on=['building_id', 'meter'])
 
     # transform target variable
     train_df['meter_reading'] = np.log1p(train_df["meter_reading"])
@@ -357,6 +366,7 @@ if __name__ == '__main__':
 
     # feature engineering
     test_df = features_engineering(test_df)
+    test_df = pd.merge(test_df, temp,  how='left', on=['building_id', 'meter'])
 
 
     def predictions(models, iterations=120):

@@ -197,6 +197,7 @@ def fill_weather_dataset(weather_df):
     return weather_df
 
 
+
 def features_engineering(df):
     # Sort by timestamp
     df.sort_values("timestamp")
@@ -223,16 +224,10 @@ def features_engineering(df):
     df['month'].replace((6, 7, 8), 3, inplace=True)
     df['month'].replace((9, 10, 11), 4, inplace=True)
 
-    df['square_feet'] = np.log1p(df['square_feet'])
-
     # Remove Unused Columns
     drop = ["timestamp", "sea_level_pressure", "wind_direction", "wind_speed"]
     df = df.drop(drop, axis=1)
     gc.collect()
-
-    # Encode Categorical Data
-    le = LabelEncoder()
-    df["primary_use"] = le.fit_transform(df["primary_use"])
 
     return df
 
@@ -271,10 +266,10 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
     global flag
     if flag:
         params = {
-            'learning_rate': 0.1, 'min_child_weight': 22, 'verbosity': -1, 'lambda_l2': 1.998142408277971,
-            'min_data_in_leaf': 112, 'bagging_freq': 8, 'boosting': 'gbdt', 'metric': 'rmse',
-            'feature_fraction': 0.8596130116873613, 'num_leaves': 622, 'bagging_fraction': 0.4108272824009604,
-            'objective': 'regression', 'seed': 4534,
+            'bagging_fraction': 0.6958018426239316, 'feature_fraction': 0.8201093412534093, 'verbosity': -1,
+            'bagging_freq': 9, 'num_leaves': 1680, 'metric': 'rmse', 'boosting': 'gbdt', 'objective': 'regression',
+            'seed': 4534, 'lambda_l2': 0.1814272579281604, 'min_data_in_leaf': 149, 'min_child_weight': 48,
+            'learning_rate': 0.1,
         }
         find_best_param(X, params)
         flag = False
@@ -311,7 +306,7 @@ def GBM_evaluate(min_data_in_leaf, min_child_weight, feature_fraction, num_leave
 def BayesianSearch(clf, params):
     """贝叶斯优化器"""
     # 迭代次数
-    num_iter = 40
+    num_iter = 30
     init_points = 5
     # 创建一个贝叶斯优化对象，输入为自定义的模型评估函数与超参数的范围
     bayes = BayesianOptimization(clf, params)
@@ -322,6 +317,23 @@ def BayesianSearch(clf, params):
     print(params['max_params'])
 
     return params
+
+def data_building(file_dir=None):
+    building = pd.read_csv(file_dir)
+    building = reduce_mem_usage(building, use_float16=True)
+
+    le = LabelEncoder()
+    building["primary_use"] = le.fit_transform(building["primary_use"])
+
+    sq_m = building.loc[(building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet']
+    building.loc[
+        (building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet'] = sq_m * 10.7639
+    building["square_feet_floor"] = building['square_feet'] / building['floor_count']
+    building['square_feet_floor'] = building['square_feet_floor'].replace(np.inf, building['square_feet'])
+    building['square_feet'] = np.log1p(building['square_feet'])
+    building['square_feet_floor'] = np.log1p(building['square_feet_floor'])
+
+    return building
 
 
 best_score = 9999
@@ -334,7 +346,6 @@ m = 0
 
 if __name__ == '__main__':
     train_df = pd.read_csv(DATA_PATH + 'train.csv')
-    building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
     weather_df = pd.read_csv(DATA_PATH + 'weather_train.csv')
 
     # eliminate bad rows
@@ -346,8 +357,8 @@ if __name__ == '__main__':
     weather_df = fill_weather_dataset(weather_df)
     train_df = reduce_mem_usage(train_df, use_float16=True)
 
-    building_df = reduce_mem_usage(building_df, use_float16=True)
     weather_df = reduce_mem_usage(weather_df, use_float16=True)
+    building_df = data_building(DATA_PATH + 'building_metadata.csv')
 
     # merge data
     train_df = train_df.merge(building_df, left_on='building_id', right_on='building_id', how='left')
@@ -381,7 +392,7 @@ if __name__ == '__main__':
         'min_child_weight': (3, 50),
         'feature_fraction': (0.3, 1),
         # 'max_depth': (4, 15),
-        'num_leaves': (30, 1800),
+        'num_leaves': (30, 2000),
         'bagging_fraction': (0.3, 1),
         'bagging_freq': (1, 10),
         'lambda_l2': (0.1, 2),

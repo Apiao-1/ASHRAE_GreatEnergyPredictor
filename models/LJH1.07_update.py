@@ -13,6 +13,7 @@ os.system('pip install category_encoders')
 os.system('free -g')
 os.system('cat /proc/cpuinfo| grep "processor"| wc -l')
 
+
 class Unbuffered(object):
     def __init__(self, stream):
         self.stream = stream
@@ -37,6 +38,8 @@ from sklearn import metrics
 from meteocalc import feels_like, Temp
 import gc
 import warnings
+import category_encoders as ce
+
 warnings.filterwarnings("ignore")
 import warnings
 from sklearn.metrics import mean_squared_error
@@ -219,16 +222,10 @@ def features_engineering(df):
     df['month'].replace((6, 7, 8), 3, inplace=True)
     df['month'].replace((9, 10, 11), 4, inplace=True)
 
-    # df['square_feet'] = np.log1p(df['square_feet'])
-
     # Remove Unused Columns
     drop = ["timestamp", "sea_level_pressure", "wind_direction", "wind_speed"]
     df = df.drop(drop, axis=1)
     gc.collect()
-
-    # Encode Categorical Data
-    # le = LabelEncoder()
-    # df["primary_use"] = le.fit_transform(df["primary_use"])
 
     return df
 
@@ -265,8 +262,6 @@ def data_building(file_dir=None):
     sq_m = building.loc[(building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet']
     building.loc[
         (building['site_id'].isin([1])) & (~building['building_id'].isin([150, 106])), 'square_feet'] = sq_m * 10.7639
-    # building['floor_count'] = building['floor_count']
-    # building['year_built'] = building['year_built']
     building["square_feet_floor"] = building['square_feet'] / building['floor_count']
     building['square_feet_floor'] = building['square_feet_floor'].replace(np.inf, building['square_feet'])
     building['square_feet'] = np.log1p(building['square_feet'])
@@ -274,8 +269,10 @@ def data_building(file_dir=None):
 
     return building
 
+
 def q80(x):
     return x.quantile(0.8)
+
 
 def q30(x):
     return x.quantile(0.3)
@@ -287,7 +284,6 @@ if __name__ == '__main__':
     RESULT_PATH = "/cos_person/notebook/100009019970/results/"
 
     train_df = pd.read_csv(DATA_PATH + 'train.csv')
-    # building_df = pd.read_csv(DATA_PATH + 'building_metadata.csv')
     weather_df = pd.read_csv(DATA_PATH + 'weather_train.csv')
 
     # eliminate bad rows
@@ -299,7 +295,6 @@ if __name__ == '__main__':
     weather_df = fill_weather_dataset(weather_df)
     train_df = reduce_mem_usage(train_df, use_float16=True)
 
-    # building_df = reduce_mem_usage(building_df, use_float16=True)
     weather_df = reduce_mem_usage(weather_df, use_float16=True)
     building_df = data_building(DATA_PATH + 'building_metadata.csv')
 
@@ -317,16 +312,23 @@ if __name__ == '__main__':
     #     'min', 'max', 'mean', 'std', 'skew', 'median', q80, q30, pd.DataFrame.kurt, 'mad', np.ptp]})
     # temp.columns = ['meter_min', 'meter_max', 'meter_mean', 'meter_std', 'meter_skew', 'meter_median', 'meter_q80',
     #                 'meter_q30', 'meter_kurt', 'meter_mad', 'meter_ptp']
-    # print(temp.shape)
-    # print(temp.head(5))
-    # train_df = pd.merge(train_df, temp,  how='left', on=['building_id', 'meter'])
+    temp = train_df[['building_id', 'meter', 'meter_reading', 'month']].groupby(['building_id', 'meter', 'month']).agg(
+        {"meter_reading": ['max', 'mean', 'std']})
+    temp.columns = ['meter_max', 'meter_mean', 'meter_std']
+    print(temp.shape)
+    print(temp.head(5))
+    train_df = pd.merge(train_df, temp, how='left', on=['building_id', 'meter', 'month'])
 
     # transform target variable
     train_df['meter_reading'] = np.log1p(train_df["meter_reading"])
 
-    # drop = ["sea_level_pressure", "wind_direction", "wind_speed"]
-    # train_df = train_df.drop(drop, axis=1)
-    # gc.collect()
+    # tmp = train_df["building_id"]
+    # # 这里要先drop掉train_df['meter_reading'] ,否则和test会报数据shape不一致的错误
+    # target_encoder = ce.TargetEncoder(cols=["building_id"]).fit(train_df, train_df['meter_reading'])
+    # train_df = target_encoder.transform(train_df)
+    # train_df = pd.concat([train_df, tmp], axis=1)
+    # print(train_df.shape)
+    # print(train_df.head())
 
     # declare target, categorical and numeric columns
     target = 'meter_reading'
@@ -335,8 +337,7 @@ if __name__ == '__main__':
     numeric_cols = [col for col in train_df.columns if col not in categorical + [target, 'timestamp', 'month']]
     features = categorical + numeric_cols
 
-    # try fold 4
-    def run_lgbm(train, cat_features=categorical, num_rounds=20000, folds=5):
+    def run_lgbm(train, num_rounds=20000, folds=5):
         print(train.shape)
         print(train.head())
         kf = StratifiedKFold(n_splits=folds, shuffle=False, random_state=2319)
@@ -410,7 +411,13 @@ if __name__ == '__main__':
 
     # feature engineering
     test_df = features_engineering(test_df)
-    # test_df = pd.merge(test_df, temp,  how='left', on=['building_id', 'meter'])
+    # tmp = test_df['building_id']
+    # test_df = pd.concat([test_df, test_df['meter']], axis=1)
+    # test_df = target_encoder.transform(test_df)
+    # test_df = pd.concat([test_df, tmp], axis=1)
+
+
+    test_df = pd.merge(test_df, temp, how='left', on=['building_id', 'meter', 'month'])
 
     def predictions(models, iterations=120):
         # split test data into batches
@@ -431,7 +438,7 @@ if __name__ == '__main__':
         test = test.merge(submission, on=['row_id'])
         leak_validation(test)
 
-        submission.to_csv(RESULT_PATH + 'fe2_lgbm.csv', index=False, float_format='%.4f')
+        submission.to_csv(RESULT_PATH + 'fe_lgbm.csv', index=False, float_format='%.4f')
         print('We are done!')
 
 
